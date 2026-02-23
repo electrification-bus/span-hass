@@ -1421,18 +1421,18 @@ files = [
 
 [[package]]
 name = "ebus-sdk"
-version = "0.1.0"
+version = "0.1.2"
 description = "Python SDK for Homie MQTT Convention (eBus)"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "ebus_sdk-0.1.0-py3-none-any.whl", hash = "sha256:4451f48d1ebb633a8cadc9f3e62246837988b6e65655da3d108561ed4945f376"},
-    {file = "ebus_sdk-0.1.0.tar.gz", hash = "sha256:90e6c2e2767b292679b1391bcffd04607bfa5f34e2ed6f3a9e4e513290f98312"},
+    {file = "ebus_sdk-0.1.2-py3-none-any.whl", hash = "sha256:52bc8953e4ee64da644ec6ead01de85969ccdfa39196bb834772102d5ee1eb68"},
+    {file = "ebus_sdk-0.1.2.tar.gz", hash = "sha256:b5b95b8b67255e383d52d14813646da7213474a18f85a009fc417e8157e4d6c3"},
 ]
 
 [package.dependencies]
-paho-mqtt = ">=1.6.1"
+paho-mqtt = ">=2.0.0"
 
 [package.extras]
 dev = ["pytest"]
