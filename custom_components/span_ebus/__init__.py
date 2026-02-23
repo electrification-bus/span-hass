@@ -5,11 +5,16 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 import logging
+import resource
+import sys
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.event import async_track_time_interval
+
+from datetime import timedelta
 
 from .const import (
     CIRCUIT_NAMES_TIMEOUT,
@@ -24,10 +29,38 @@ from .const import (
     DOMAIN,
     PLATFORMS,
 )
+
+MEMORY_DIAG_INTERVAL = timedelta(minutes=30)
 from .services import async_setup_services
 from .util import _SUB_DEVICE_TYPES, panel_device_info, subdevice_info
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _log_memory_diagnostics(panels: dict) -> None:
+    """Log memory diagnostics for all active SPAN panels."""
+    # Peak RSS in bytes (macOS returns bytes, Linux returns KB)
+    peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    if sys.platform == "linux":
+        peak_rss *= 1024  # Linux ru_maxrss is in KB
+    peak_mb = peak_rss / (1024 * 1024)
+
+    panel_stats = []
+    for entry_id, data in panels.items():
+        panel = data.get("panel")
+        if panel and panel._controller:
+            ctrl = panel._controller
+            device_count = len(ctrl.devices)
+            sub_count = len(ctrl.mqttc.sub_callbacks) if ctrl.mqttc else 0
+            panel_stats.append(
+                f"{panel.serial_number}(devices={device_count},subs={sub_count})"
+            )
+
+    _LOGGER.info(
+        "Memory diagnostics: peak_rss=%.1fMB, panels=[%s]",
+        peak_mb,
+        ", ".join(panel_stats) if panel_stats else "none",
+    )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -208,6 +241,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "unregister_callbacks": unregister_callbacks,
     }
 
+    # Start periodic memory diagnostics (once, on first panel setup)
+    if "_memory_diag_unsub" not in hass.data[DOMAIN]:
+
+        def _diag_callback(_now) -> None:
+            panels = {
+                eid: data
+                for eid, data in hass.data.get(DOMAIN, {}).items()
+                if isinstance(data, dict) and "panel" in data
+            }
+            _log_memory_diagnostics(panels)
+
+        hass.data[DOMAIN]["_memory_diag_unsub"] = async_track_time_interval(
+            hass, _diag_callback, MEMORY_DIAG_INTERVAL
+        )
+
     # Forward setup to each platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -305,5 +353,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 unreg()
             panel: SpanPanel = data["panel"]
             await panel.async_stop()
+
+        # If no more panels, cancel the memory diagnostics timer
+        remaining = {
+            k for k in hass.data.get(DOMAIN, {})
+            if k != "_memory_diag_unsub"
+        }
+        if not remaining:
+            unsub = hass.data[DOMAIN].pop("_memory_diag_unsub", None)
+            if unsub:
+                unsub()
 
     return unload_ok

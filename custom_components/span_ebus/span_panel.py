@@ -143,6 +143,7 @@ class SpanPanel:
             mqtt_cfg=self._mqtt_cfg,
             homie_domain=EBUS_HOMIE_DOMAIN,
             auto_start=False,
+            device_id=self.serial_number,
         )
 
         self._controller.set_on_device_discovered_callback(self._on_device_discovered)
@@ -161,6 +162,10 @@ class SpanPanel:
             self._controller = None
         self._device = None
         self._available = False
+        # Release callback registrations to break reference cycles
+        self._property_callbacks.clear()
+        self._availability_callbacks.clear()
+        self._ready_callbacks.clear()
 
     # ── SDK callbacks (called from paho-mqtt thread) ──────────────────────
 
