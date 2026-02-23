@@ -1,0 +1,137 @@
+[tool.poetry]
+name = "span-hass"
+description = "SPAN Panel (eBus) Custom Integration for Home Assistant"
+authors = ["dcj"]
+license = "MIT"
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.14.2,<3.15"
+homeassistant = "2026.2.2"
+ebus-sdk = "^0.1.0"
+
+[tool.poetry.group.dev.dependencies]
+homeassistant-stubs = "2026.2.2"
+types-requests = "*"
+mypy = "*"
+pyright = "*"
+ruff = "*"
+bandit = "*"
+pre-commit = "*"
+voluptuous-stubs = "*"
+pytest = "^9.0.0"
+pytest-homeassistant-custom-component = "^0.13.315"
+pytest-asyncio = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.mypy]
+platform = "linux"
+show_error_codes = true
+follow_imports = "normal"
+strict_equality = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_configs = true
+check_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+warn_return_any = true
+strict_optional = true
+mypy_path = "."
+namespace_packages = false
+explicit_package_bases = false
+files = ["custom_components/span_ebus"]
+exclude = ["venv/.*", ".venv/.*"]
+enable_error_code = [
+    "deprecated",
+    "ignore-without-code",
+    "redundant-self",
+    "truthy-iterable",
+    "mutable-override",
+]
+disable_error_code = [
+    "annotation-unchecked",
+    "import-not-found",
+    "import-untyped",
+    "override",
+    "misc",
+]
+
+[tool.pyright]
+include = ["custom_components/span_ebus"]
+exclude = ["venv", ".venv", ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache"]
+extraPaths = ["./custom_components"]
+pythonPlatform = "Darwin"
+pythonVersion = "3.14"
+typeCheckingMode = "basic"
+useLibraryCodeForTypes = true
+reportMissingImports = "warning"
+reportMissingTypeStubs = false
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "B007", "B014",
+    "C",
+    "D",
+    "E",
+    "F",
+    "I",
+    "ICN001",
+    "PGH004",
+    "PLC0414",
+    "SIM105", "SIM117", "SIM118", "SIM201", "SIM212", "SIM300", "SIM401",
+    "T20",
+    "TID",
+    "TRY004",
+    "RUF006",
+    "UP",
+    "W",
+]
+ignore = [
+    "D202", "D203", "D213", "D406", "D407",
+    "E501",
+    "E731",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"test_*.py" = ["T201", "D103", "D100", "E402", "TID252"]
+"tests/**/*.py" = ["T201", "D103", "D100", "E402", "TID252"]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.isort]
+known-first-party = ["custom_components", "span_ebus"]
+force-sort-within-sections = true
+combine-as-imports = true
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101", "B108"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

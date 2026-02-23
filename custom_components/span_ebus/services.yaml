@@ -1,0 +1,16 @@
+link_subpanel:
+  name: Link sub-panel
+  description: Set a sub-panel's parent in the device registry (via_device_id).
+  fields:
+    sub_serial:
+      name: Sub-panel serial
+      description: Serial number of the child panel (e.g., nt-2204-c1c46).
+      required: true
+      selector:
+        text:
+    parent_serial:
+      name: Parent panel serial
+      description: Serial number of the parent panel (e.g., nt-2143-c1akc).
+      required: true
+      selector:
+        text:
