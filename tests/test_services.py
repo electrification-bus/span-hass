@@ -30,9 +30,9 @@ def dev_reg():
     sub_device.id = "dev-sub-001"
 
     def _get_device(identifiers=None):
-        if identifiers == {(DOMAIN, "nt-2143-c1akc")}:
+        if identifiers == {(DOMAIN, "nt-2024-a1b2c")}:
             return parent_device
-        if identifiers == {(DOMAIN, "nt-2204-c1c46")}:
+        if identifiers == {(DOMAIN, "nt-2024-d3e4f")}:
             return sub_device
         return None
 
@@ -55,8 +55,8 @@ async def test_link_subpanel_service(hass, dev_reg):
     # Build a mock ServiceCall
     call = MagicMock()
     call.data = {
-        "sub_serial": "nt-2204-c1c46",
-        "parent_serial": "nt-2143-c1akc",
+        "sub_serial": "nt-2024-d3e4f",
+        "parent_serial": "nt-2024-a1b2c",
     }
 
     with patch(
@@ -79,7 +79,7 @@ async def test_link_subpanel_missing_parent(hass, dev_reg):
 
     call = MagicMock()
     call.data = {
-        "sub_serial": "nt-2204-c1c46",
+        "sub_serial": "nt-2024-d3e4f",
         "parent_serial": "nt-9999-missing",
     }
 
@@ -101,7 +101,7 @@ async def test_link_subpanel_missing_sub(hass, dev_reg):
     call = MagicMock()
     call.data = {
         "sub_serial": "nt-9999-missing",
-        "parent_serial": "nt-2143-c1akc",
+        "parent_serial": "nt-2024-a1b2c",
     }
 
     with patch(

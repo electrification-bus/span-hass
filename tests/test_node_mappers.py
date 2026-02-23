@@ -408,7 +408,7 @@ def test_bess_device_name_with_serial_suffix():
     from unittest.mock import MagicMock
 
     panel = MagicMock()
-    panel.serial_number = "nt-2026-c192x"
+    panel.serial_number = "nt-2024-g5h6j"
     panel.get_property_value = MagicMock(return_value=None)
 
     desc = {
@@ -424,7 +424,7 @@ def test_bess_device_name_with_serial_suffix():
     }
     specs = entities_from_description(desc, panel=panel)
     assert len(specs) == 1
-    assert specs[0].device_name == "c192x Battery Storage"
+    assert specs[0].device_name == "g5h6j Battery Storage"
 
 
 def test_pv_device_name_with_serial_suffix():
@@ -432,7 +432,7 @@ def test_pv_device_name_with_serial_suffix():
     from unittest.mock import MagicMock
 
     panel = MagicMock()
-    panel.serial_number = "nt-2143-c1akc"
+    panel.serial_number = "nt-2024-a1b2c"
     panel.get_property_value = MagicMock(return_value=None)
 
     desc = {
@@ -448,7 +448,7 @@ def test_pv_device_name_with_serial_suffix():
     }
     specs = entities_from_description(desc, panel=panel)
     assert len(specs) == 1
-    assert specs[0].device_name == "c1akc Solar PV"
+    assert specs[0].device_name == "a1b2c Solar PV"
 
 
 def test_power_flows_device_name_with_serial_suffix():
@@ -456,14 +456,14 @@ def test_power_flows_device_name_with_serial_suffix():
     from unittest.mock import MagicMock
 
     panel = MagicMock()
-    panel.serial_number = "nt-2026-c192x"
+    panel.serial_number = "nt-2024-g5h6j"
     panel.get_property_value = MagicMock(return_value=None)
 
     specs = entities_from_description(MOCK_DESCRIPTION, panel=panel)
     pf_specs = [s for s in specs if s.node_id == "power-flows"]
     assert len(pf_specs) > 0
     for s in pf_specs:
-        assert s.device_name == "c192x Site Metering"
+        assert s.device_name == "g5h6j Site Metering"
 
 
 def test_subdevice_info_via_device():

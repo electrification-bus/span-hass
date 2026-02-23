@@ -4,13 +4,13 @@ link_subpanel:
   fields:
     sub_serial:
       name: Sub-panel serial
-      description: Serial number of the child panel (e.g., nt-2204-c1c46).
+      description: Serial number of the child panel (e.g., nt-2024-d3e4f).
       required: true
       selector:
         text:
     parent_serial:
       name: Parent panel serial
-      description: Serial number of the parent panel (e.g., nt-2143-c1akc).
+      description: Serial number of the parent panel (e.g., nt-2024-a1b2c).
       required: true
       selector:
         text:

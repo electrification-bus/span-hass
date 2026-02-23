@@ -164,8 +164,8 @@ To establish the parent/child hierarchy in HA's device registry (which enables S
 ```yaml
 service: span_ebus.link_subpanel
 data:
-  sub_serial: "nt-2204-c1c46"
-  parent_serial: "nt-2143-c1akc"
+  sub_serial: "nt-2024-d3e4f"
+  parent_serial: "nt-2024-a1b2c"
 ```
 
 This sets `via_device_id` in the device registry, which persists across restarts.
@@ -250,7 +250,7 @@ The ebus-sdk's MQTT callbacks run on the paho-mqtt background thread. The integr
 All entities use the pattern `{serial}_{node_id}_{property_id}`, for example:
 
 ```
-nt-2143-c1akc_a1b2c3d4-e5f6_active-power
+nt-2024-a1b2c_a1b2c3d4-e5f6_active-power
 ```
 
 Sub-device identifiers use `{serial}_{node_id}`, linked to the parent panel via `via_device`.
