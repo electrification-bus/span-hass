@@ -1,0 +1,44 @@
+{
+  "config": {
+    "flow_title": "SPAN Panel ({serial})",
+    "step": {
+      "user": {
+        "title": "SPAN Panel",
+        "description": "Enter the IP address or hostname of your SPAN Panel.",
+        "data": {
+          "host": "Host"
+        }
+      },
+      "auth_menu": {
+        "title": "Authentication",
+        "description": "Serial: {serial}\nFirmware: {firmware}\n\nChoose an authentication method.",
+        "menu_options": {
+          "auth_passphrase": "Enter passphrase",
+          "auth_door_bypass": "Door bypass (3 button presses)"
+        }
+      },
+      "auth_passphrase": {
+        "title": "Enter Passphrase",
+        "description": "Enter the HOP passphrase for your SPAN Panel.",
+        "data": {
+          "passphrase": "Passphrase"
+        }
+      },
+      "auth_door_bypass": {
+        "title": "Door Bypass Authentication",
+        "description": "Open your SPAN Panel door and press the door switch 3 times rapidly, then click Submit within 15 minutes.",
+        "submit": "I've pressed the door switch"
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the SPAN Panel. Verify the host address.",
+      "invalid_auth": "Invalid passphrase. Please try again.",
+      "door_bypass_not_active": "Door bypass not active. Press the door switch 3 times and try again.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This SPAN Panel is already configured.",
+      "cannot_connect": "Unable to connect to the discovered SPAN Panel."
+    }
+  }
+}

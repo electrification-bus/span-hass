@@ -1,0 +1,15 @@
+{
+  "domain": "span_ebus",
+  "name": "SPAN Panel (eBus)",
+  "codeowners": ["@dcj"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/dcj/span-hass",
+  "iot_class": "local_push",
+  "requirements": ["ebus-sdk>=0.1.1"],
+  "version": "0.1.0",
+  "zeroconf": [
+    {"type": "_ebus._tcp.local."},
+    {"type": "_secure-mqtt._tcp.local."}
+  ]
+}
