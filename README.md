@@ -23,7 +23,7 @@ Unlike polling-based integrations, span_ebus uses **local push** over MQTT — t
 
 ## Requirements
 
-- SPAN Panel with eBus firmware (MQTT + REST v2 API enabled)
+- SPAN Panel **MAIN 32**, running firmware **r202603 or later** (eBus MQTT + REST v2 API)
 - Home Assistant 2026.2 or later
 - The panel must be reachable on the local network
 
