@@ -51,10 +51,8 @@ class SpanEbusBinarySensor(SpanEbusEntity, BinarySensorEntity):
         """Initialize the binary sensor."""
         super().__init__(panel=panel, spec=spec)
 
-        if spec.device_class:
-            self._attr_device_class = spec.device_class
-        if spec.entity_category:
-            self._attr_entity_category = spec.entity_category
+        self._attr_device_class = spec.device_class
+        self._attr_entity_category = spec.entity_category
         if spec.icon:
             self._attr_icon = spec.icon
         self._on_values = spec.on_values
