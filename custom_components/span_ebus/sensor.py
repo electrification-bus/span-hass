@@ -46,14 +46,10 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
         super().__init__(panel=panel, spec=spec)
         self._spec = spec
 
-        if spec.device_class:
-            self._attr_device_class = spec.device_class
-        if spec.state_class:
-            self._attr_state_class = spec.state_class
-        if spec.native_unit:
-            self._attr_native_unit_of_measurement = spec.native_unit
-        if spec.entity_category:
-            self._attr_entity_category = spec.entity_category
+        self._attr_device_class = spec.device_class
+        self._attr_state_class = spec.state_class
+        self._attr_native_unit_of_measurement = spec.native_unit
+        self._attr_entity_category = spec.entity_category
         if spec.icon:
             self._attr_icon = spec.icon
 
