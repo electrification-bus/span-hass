@@ -7,6 +7,7 @@ from collections.abc import Callable
 import logging
 import resource
 import sys
+import tracemalloc
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -37,13 +38,25 @@ from .util import _SUB_DEVICE_TYPES, panel_device_info, subdevice_info
 _LOGGER = logging.getLogger(__name__)
 
 
+_prev_snapshot: tracemalloc.Snapshot | None = None
+
+
 def _log_memory_diagnostics(panels: dict) -> None:
     """Log memory diagnostics for all active SPAN panels."""
+    global _prev_snapshot  # noqa: PLW0603
+
     # Peak RSS in bytes (macOS returns bytes, Linux returns KB)
     peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     if sys.platform == "linux":
         peak_rss *= 1024  # Linux ru_maxrss is in KB
     peak_mb = peak_rss / (1024 * 1024)
+
+    # Traced memory from tracemalloc
+    if tracemalloc.is_tracing():
+        traced_current, traced_peak = tracemalloc.get_traced_memory()
+        traced_mb = traced_current / (1024 * 1024)
+    else:
+        traced_mb = 0.0
 
     panel_stats = []
     for entry_id, data in panels.items():
@@ -52,15 +65,37 @@ def _log_memory_diagnostics(panels: dict) -> None:
             ctrl = panel._controller
             device_count = len(ctrl.devices)
             sub_count = len(ctrl.mqttc.sub_callbacks) if ctrl.mqttc else 0
+            # Paho-mqtt internal message queues
+            paho_in = 0
+            paho_out = 0
+            if ctrl.mqttc and hasattr(ctrl.mqttc, "mqttc"):
+                paho = ctrl.mqttc.mqttc
+                if hasattr(paho, "_in_messages"):
+                    paho_in = len(paho._in_messages)
+                if hasattr(paho, "_out_messages"):
+                    paho_out = len(paho._out_messages)
             panel_stats.append(
-                f"{panel.serial_number}(devices={device_count},subs={sub_count})"
+                f"{panel.serial_number}(devices={device_count},subs={sub_count},"
+                f"paho_in={paho_in},paho_out={paho_out})"
             )
 
     _LOGGER.info(
-        "Memory diagnostics: peak_rss=%.1fMB, panels=[%s]",
+        "Memory diagnostics: peak_rss=%.1fMB, traced=%.1fMB, panels=[%s]",
         peak_mb,
+        traced_mb,
         ", ".join(panel_stats) if panel_stats else "none",
     )
+
+    # Snapshot — log top allocators
+    if tracemalloc.is_tracing():
+        try:
+            snapshot = tracemalloc.take_snapshot()
+            top_alloc = snapshot.statistics("filename")
+            for i, stat in enumerate(top_alloc[:5], 1):
+                _LOGGER.info("tracemalloc top %d: %s", i, stat)
+            _prev_snapshot = snapshot
+        except Exception:
+            _LOGGER.exception("tracemalloc snapshot failed")
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -241,8 +276,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "unregister_callbacks": unregister_callbacks,
     }
 
-    # Start periodic memory diagnostics (once, on first panel setup)
+    # Start tracemalloc and periodic memory diagnostics (once, on first panel setup)
     if "_memory_diag_unsub" not in hass.data[DOMAIN]:
+        if not tracemalloc.is_tracing():
+            tracemalloc.start()
+            _LOGGER.info("tracemalloc started for memory leak diagnostics")
 
         def _diag_callback(_now) -> None:
             panels = {

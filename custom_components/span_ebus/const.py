@@ -31,5 +31,6 @@ DEVICE_READY_TIMEOUT = 120  # seconds to wait for device "ready" state
 CIRCUIT_NAMES_TIMEOUT = 10  # seconds to wait for circuit name properties after ready
 API_TIMEOUT = 15  # seconds for REST API calls
 
-# Homie domain
+# MQTT
+MQTT_QOS = 1  # QoS 1 avoids paho-mqtt _in_messages accumulation with QoS 2
 EBUS_HOMIE_DOMAIN = "ebus"
