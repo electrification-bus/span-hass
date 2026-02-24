@@ -10,7 +10,7 @@ from typing import Any
 from ebus_sdk.homie import Controller, DiscoveredDevice
 from homeassistant.core import HomeAssistant, callback
 
-from .const import EBUS_HOMIE_DOMAIN
+from .const import EBUS_HOMIE_DOMAIN, MQTT_QOS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -144,6 +144,7 @@ class SpanPanel:
             homie_domain=EBUS_HOMIE_DOMAIN,
             auto_start=False,
             device_id=self.serial_number,
+            qos=MQTT_QOS,
         )
 
         self._controller.set_on_device_discovered_callback(self._on_device_discovered)
