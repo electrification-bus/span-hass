@@ -6,6 +6,8 @@ A custom [Home Assistant](https://www.home-assistant.io/) integration for [SPAN]
 
 Unlike polling-based integrations, span_ebus uses **local push** over MQTT — the panel streams real-time updates directly to Home Assistant with no cloud dependency and no polling interval. Every circuit power change, relay toggle, and energy accumulation arrives instantly via the panel's built-in MQTT broker.
 
+> **Early alpha release.** This integration has been developed over the past 72 hours and has not been tested extensively. It is running on the author's personal Home Assistant server with no known issues, but it is far too soon to conclude that this is a solid and stable integration. Please report any issues on the [GitHub issue tracker](https://github.com/electrification-bus/span-hass/issues).
+
 ## Features
 
 - **Automatic discovery** via mDNS (`_ebus._tcp` and `_secure-mqtt._tcp`)
@@ -33,8 +35,8 @@ Unlike polling-based integrations, span_ebus uses **local push** over MQTT — t
 
 1. Open HACS in your Home Assistant instance
 2. Go to Integrations > three-dot menu > **Custom repositories**
-3. Add this repository URL with category **Integration**
-4. Install **SPAN Panel (eBus)**
+3. Enter `https://github.com/electrification-bus/span-hass` and select category **Integration**
+4. Click **Add**, then find and install **SPAN Panel (eBus)**
 5. **Restart Home Assistant**
 
 ### Manual
@@ -205,7 +207,7 @@ For the **Energy Dashboard**, use these entity mappings:
 - **Battery**: Dedicated battery integration entities (if UPSTREAM), or feed circuit entities (if IN_PANEL)
 - **Individual device consumption**: Each circuit's "Energy" sensor
 
-For automated Energy Dashboard configuration with topology-aware overlap detection, see [hass-atlas](https://github.com/dcj/span-hass-tools) — a companion CLI tool that reads your panel topology and intelligently configures the Energy Dashboard, handling multi-vendor setups (SPAN + Tesla Powerwall + Enphase, etc.) without double-counting.
+For automated Energy Dashboard configuration with topology-aware overlap detection, see [hass-atlas](https://github.com/electrification-bus/hass-atlas) — a companion CLI tool that reads your panel topology and intelligently configures the Energy Dashboard, handling multi-vendor setups (SPAN + Tesla Powerwall + Enphase, etc.) without double-counting.
 
 ## Architecture
 
@@ -272,7 +274,7 @@ Additionally, the import/export energy direction convention is not documented in
 
 ### hass-atlas
 
-[hass-atlas](https://github.com/dcj/span-hass-tools) is a companion CLI tool for auditing and configuring Home Assistant energy dashboards, area assignments, and device topology. It connects to HA via the WebSocket API and provides:
+[hass-atlas](https://github.com/electrification-bus/hass-atlas) is a companion CLI tool for auditing and configuring Home Assistant energy dashboards, area assignments, and device topology. It connects to HA via the WebSocket API and provides:
 
 - **Topology-aware Energy Dashboard configuration** — reads SPAN panel metadata (battery position, solar vendor, feed circuits) and cross-references with other integrations to build correct configurations without double-counting
 - **Multi-panel Sankey hierarchy** — configures `included_in_stat` relationships so the Energy Dashboard shows energy flowing through daisy-chained panels
