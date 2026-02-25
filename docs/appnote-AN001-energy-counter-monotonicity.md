@@ -75,3 +75,4 @@ If a future SPAN firmware release guarantees monotonic energy counters, this app
 
 - [span-hass implementation](../custom_components/span_ebus/sensor.py) — `_update_from_value()` in `SpanEbusSensor`
 - [Internal notes](energy-counter-suppression.md) — observation data and implementation details
+- [Feature request to SPAN](https://github.com/spanio/SPAN-API-Client-Docs/discussions/5) — request for firmware-level monotonicity guarantee
