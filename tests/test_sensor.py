@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
-from homeassistant.const import Platform, UnitOfPower
+from homeassistant.const import Platform, UnitOfEnergy, UnitOfPower
 
 from custom_components.span_ebus.node_mappers import EntitySpec
 from custom_components.span_ebus.sensor import SpanEbusSensor
@@ -199,3 +199,89 @@ def test_panel_sensor_device_info(mock_panel):
     info = sensor._attr_device_info
     assert info["identifiers"] == {(DOMAIN, MOCK_SERIAL)}
     assert "via_device" not in info
+
+
+# --- Energy counter decrease suppression tests ---
+
+
+def _make_energy_sensor(mock_panel):
+    """Create a TOTAL_INCREASING energy sensor for suppression tests."""
+    spec = EntitySpec(
+        platform=Platform.SENSOR,
+        node_id=MOCK_CIRCUIT_UUID,
+        property_id="exported-energy",
+        name="Kitchen Energy",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit=UnitOfEnergy.WATT_HOUR,
+    )
+    return SpanEbusSensor(mock_panel, spec)
+
+
+def test_energy_sensor_suppresses_decrease(mock_panel):
+    """TOTAL_INCREASING sensor holds value when counter decreases."""
+    sensor = _make_energy_sensor(mock_panel)
+    sensor._update_from_value("1000.0")
+    assert sensor._attr_native_value == 1000.0
+
+    sensor._update_from_value("950.0")
+    assert sensor._attr_native_value == 1000.0  # held at high-water mark
+
+
+def test_energy_sensor_resumes_after_catchup(mock_panel):
+    """Sensor accepts value once it exceeds the high-water mark."""
+    sensor = _make_energy_sensor(mock_panel)
+    sensor._update_from_value("1000.0")
+    sensor._update_from_value("950.0")  # suppressed
+    assert sensor._attr_native_value == 1000.0
+
+    sensor._update_from_value("1000.0")  # catches up (equal)
+    assert sensor._attr_native_value == 1000.0
+    assert sensor._counter_decrease_suppressed is False
+
+    sensor._update_from_value("1050.0")  # normal increase
+    assert sensor._attr_native_value == 1050.0
+
+
+def test_measurement_sensor_allows_decrease(mock_panel):
+    """MEASUREMENT sensor (power) still allows decreases normally."""
+    spec = EntitySpec(
+        platform=Platform.SENSOR,
+        node_id=MOCK_CIRCUIT_UUID,
+        property_id="active-power",
+        name="Kitchen Power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit=UnitOfPower.WATT,
+    )
+    sensor = SpanEbusSensor(mock_panel, spec)
+    sensor._update_from_value("500.0")
+    sensor._update_from_value("300.0")
+    assert sensor._attr_native_value == 300.0
+
+
+def test_energy_sensor_accepts_first_value(mock_panel):
+    """First value (previous is None) is always accepted."""
+    sensor = _make_energy_sensor(mock_panel)
+    assert sensor._attr_native_value is None
+    sensor._update_from_value("1000.0")
+    assert sensor._attr_native_value == 1000.0
+
+
+def test_energy_sensor_suppression_warning_logged(mock_panel, caplog):
+    """WARNING logged on first decrease, not on subsequent ones."""
+    import logging
+
+    sensor = _make_energy_sensor(mock_panel)
+    sensor._update_from_value("1000.0")
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.span_ebus.sensor"):
+        sensor._update_from_value("950.0")
+    assert "Energy counter decrease suppressed" in caplog.text
+    assert "1000.0" in caplog.text
+    assert "950.0" in caplog.text
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="custom_components.span_ebus.sensor"):
+        sensor._update_from_value("940.0")
+    assert "Energy counter decrease suppressed" not in caplog.text  # no repeat warning

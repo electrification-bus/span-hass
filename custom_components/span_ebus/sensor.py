@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -52,6 +52,7 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
         self._attr_entity_category = spec.entity_category
         if spec.icon:
             self._attr_icon = spec.icon
+        self._counter_decrease_suppressed = False
 
     _NUMERIC_DEVICE_CLASSES = {
         SensorDeviceClass.POWER,
@@ -69,6 +70,33 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
                 numeric = float(value)
                 if self._spec.negate:
                     numeric = -numeric
+                # Suppress counter decreases for total_increasing sensors.
+                # SPAN firmware may recalibrate energy counters while running,
+                # which corrupts HA recorder statistics (false MWh-scale spikes).
+                if (
+                    self._attr_state_class == SensorStateClass.TOTAL_INCREASING
+                    and self._attr_native_value is not None
+                    and numeric < self._attr_native_value
+                ):
+                    if not self._counter_decrease_suppressed:
+                        _LOGGER.warning(
+                            "Energy counter decrease suppressed for %s: "
+                            "%.1f → %.1f (Δ%.1f %s); holding previous value",
+                            self.entity_id,
+                            self._attr_native_value,
+                            numeric,
+                            self._attr_native_value - numeric,
+                            self._attr_native_unit_of_measurement or "",
+                        )
+                        self._counter_decrease_suppressed = True
+                    return
+                if self._counter_decrease_suppressed and numeric >= self._attr_native_value:
+                    _LOGGER.info(
+                        "Energy counter for %s caught up (%.1f); resuming normal tracking",
+                        self.entity_id,
+                        numeric,
+                    )
+                    self._counter_decrease_suppressed = False
                 self._attr_native_value = numeric
             except (ValueError, TypeError):
                 self._attr_native_value = None
