@@ -33,6 +33,7 @@ class SpanEbusEntity(Entity):
         self._panel = panel
         self._node_id = spec.node_id
         self._property_id = spec.property_id
+        self._source_property_id = spec.source_property_id or spec.property_id
 
         self._attr_unique_id = make_unique_id(
             panel.serial_number, spec.node_id, spec.property_id
@@ -61,9 +62,9 @@ class SpanEbusEntity(Entity):
 
     async def async_added_to_hass(self) -> None:
         """Register callbacks when entity is added to HA."""
-        # Register for property updates
+        # Register for property updates (use source_property_id for MQTT subscription)
         self._unregister_property = self._panel.register_property_callback(
-            self._node_id, self._property_id, self._on_value_update
+            self._node_id, self._source_property_id, self._on_value_update
         )
         # Register for availability updates
         self._unregister_availability = self._panel.register_availability_callback(
@@ -71,7 +72,7 @@ class SpanEbusEntity(Entity):
         )
 
         # Set initial value if already known
-        current = self._panel.get_property_value(self._node_id, self._property_id)
+        current = self._panel.get_property_value(self._node_id, self._source_property_id)
         if current is not None:
             self._update_from_value(current)
 

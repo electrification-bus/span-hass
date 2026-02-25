@@ -875,3 +875,128 @@ def test_downstream_lug_naming():
     assert imported.name == "Downstream Energy"
     assert exported.name == "Downstream Energy Returned"
     assert power.name == "Downstream Power"
+
+
+# --- PV generation power entity tests ---
+
+
+def test_pv_feed_creates_generation_power():
+    """PV with feed→circuit creates generation-power entity on the circuit."""
+    from unittest.mock import MagicMock
+
+    panel = MagicMock()
+    panel.serial_number = "nt-0000-abc12"
+
+    def get_prop(node_id, prop_id):
+        if node_id == "pv-node" and prop_id == "feed":
+            return MOCK_CIRCUIT_UUID
+        if node_id == MOCK_CIRCUIT_UUID and prop_id == "name":
+            return "Commissioned PV System"
+        return None
+
+    panel.get_property_value = MagicMock(side_effect=get_prop)
+
+    desc = {
+        "nodes": {
+            MOCK_CIRCUIT_UUID: {
+                "name": "Circuit 1",
+                "type": "energy.ebus.device.circuit",
+                "properties": {
+                    "active-power": {
+                        "name": "Active Power",
+                        "datatype": "float",
+                        "unit": "kW",
+                    },
+                    "relay": {
+                        "name": "Relay",
+                        "datatype": "enum",
+                        "format": "OPEN,CLOSED",
+                        "settable": True,
+                    },
+                },
+            },
+            "pv-node": {
+                "name": "Solar",
+                "type": "energy.ebus.device.pv",
+                "properties": {
+                    "feed": {"name": "Feed", "datatype": "string"},
+                    "power-w": {"name": "Power", "datatype": "float", "unit": "W"},
+                },
+            },
+        }
+    }
+    specs = entities_from_description(desc, panel=panel)
+    gen = [s for s in specs if s.property_id == "generation-power"]
+    assert len(gen) == 1
+    assert gen[0].node_id == MOCK_CIRCUIT_UUID
+    assert gen[0].source_property_id == "active-power"
+    assert gen[0].negate is False
+    assert gen[0].name == "Generation Power"
+    assert gen[0].device_class == SensorDeviceClass.POWER
+    assert gen[0].native_unit == UnitOfPower.WATT
+    assert gen[0].node_type == "energy.ebus.device.circuit"
+    assert gen[0].device_name == "Commissioned PV System"
+
+
+def test_no_pv_no_generation_power():
+    """Without PV nodes, no generation-power entities are created."""
+    from unittest.mock import MagicMock
+
+    panel = MagicMock()
+    panel.serial_number = "nt-0000-abc12"
+    panel.get_property_value = MagicMock(return_value=None)
+
+    # Description with only a circuit, no PV node
+    desc = {
+        "nodes": {
+            MOCK_CIRCUIT_UUID: {
+                "name": "Circuit 1",
+                "type": "energy.ebus.device.circuit",
+                "properties": {
+                    "active-power": {
+                        "name": "Active Power",
+                        "datatype": "float",
+                        "unit": "kW",
+                    },
+                },
+            },
+        }
+    }
+    specs = entities_from_description(desc, panel=panel)
+    gen = [s for s in specs if s.property_id == "generation-power"]
+    assert len(gen) == 0
+
+
+def test_pv_feed_not_resolved_no_generation_power():
+    """PV exists but feed value is None (not yet resolved), no generation-power entity."""
+    from unittest.mock import MagicMock
+
+    panel = MagicMock()
+    panel.serial_number = "nt-0000-abc12"
+    panel.get_property_value = MagicMock(return_value=None)
+
+    desc = {
+        "nodes": {
+            MOCK_CIRCUIT_UUID: {
+                "name": "Circuit 1",
+                "type": "energy.ebus.device.circuit",
+                "properties": {
+                    "active-power": {
+                        "name": "Active Power",
+                        "datatype": "float",
+                        "unit": "kW",
+                    },
+                },
+            },
+            "pv-node": {
+                "name": "Solar",
+                "type": "energy.ebus.device.pv",
+                "properties": {
+                    "feed": {"name": "Feed", "datatype": "string"},
+                },
+            },
+        }
+    }
+    specs = entities_from_description(desc, panel=panel)
+    gen = [s for s in specs if s.property_id == "generation-power"]
+    assert len(gen) == 0
