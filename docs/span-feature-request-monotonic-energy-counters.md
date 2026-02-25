@@ -1,6 +1,6 @@
 # Feature Request: Guarantee monotonically non-decreasing energy counters
 
-> For submission as a Discussion on the SPAN-API-Client-Docs repo.
+> Filed as [Discussion #5](https://github.com/spanio/SPAN-API-Client-Docs/discussions/5) on the SPAN-API-Client-Docs repo.
 
 ---
 
