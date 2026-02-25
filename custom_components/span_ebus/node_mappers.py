@@ -38,6 +38,10 @@ class EntitySpec:
     entity_category: EntityCategory | None = None
     # Select-specific
     options: list[str] = field(default_factory=list)
+    # Subscribe to a different property than property_id for MQTT updates.
+    # When set, the entity unique_id uses property_id but MQTT subscription
+    # uses source_property_id.  Empty string means "same as property_id".
+    source_property_id: str = ""
     # Value transform: negate numeric values (e.g. SPAN circuit active-power
     # reports negative for consumption, but HA convention is positive)
     negate: bool = False
@@ -834,6 +838,37 @@ def entities_from_description(
                 spec.device_name = dev_name
 
         specs.extend(new_specs)
+
+    # Detect PV-feeding circuits and add generation power entities.
+    # PV nodes have a "feed" property whose runtime value is the circuit node ID.
+    # The generation power entity subscribes to the same active-power MQTT topic
+    # but without negate, giving positive values for generation — exactly what
+    # the Energy Dashboard solar stat_rate needs.
+    if panel is not None:
+        pv_feed_circuits: set[str] = set()
+        for node_id, node_desc in nodes.items():
+            if node_desc.get("type") == "energy.ebus.device.pv":
+                feed = panel.get_property_value(node_id, "feed")
+                if feed:
+                    pv_feed_circuits.add(feed)
+
+        for circuit_id in pv_feed_circuits:
+            circuit_desc = nodes.get(circuit_id, {})
+            if "active-power" in circuit_desc.get("properties", {}):
+                gen_spec = EntitySpec(
+                    platform=Platform.SENSOR,
+                    node_id=circuit_id,
+                    property_id="generation-power",
+                    source_property_id="active-power",
+                    name="Generation Power",
+                    device_class=SensorDeviceClass.POWER,
+                    state_class=SensorStateClass.MEASUREMENT,
+                    native_unit=UnitOfPower.WATT,
+                )
+                gen_spec.node_type = "energy.ebus.device.circuit"
+                circuit_name = panel.get_property_value(circuit_id, "name")
+                gen_spec.device_name = circuit_name or f"Circuit {circuit_id[:6]}"
+                specs.append(gen_spec)
 
     return specs
 

@@ -268,6 +268,52 @@ def test_energy_sensor_accepts_first_value(mock_panel):
     assert sensor._attr_native_value == 1000.0
 
 
+def test_generation_power_not_negated(mock_panel):
+    """Generation power entity outputs raw value (positive for generation)."""
+    spec = EntitySpec(
+        platform=Platform.SENSOR,
+        node_id=MOCK_CIRCUIT_UUID,
+        property_id="generation-power",
+        source_property_id="active-power",
+        name="Generation Power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit=UnitOfPower.WATT,
+        # negate defaults to False
+    )
+    sensor = SpanEbusSensor(mock_panel, spec)
+
+    # PV generation: SPAN reports positive active-power for generation
+    sensor._update_from_value("3500.0")
+    assert sensor._attr_native_value == 3500.0
+
+    # Nighttime standby (small negative = consumption)
+    sensor._update_from_value("-5.0")
+    assert sensor._attr_native_value == -5.0
+
+
+def test_source_property_id_subscription(mock_panel):
+    """Entity with source_property_id subscribes to source, not property_id."""
+    spec = EntitySpec(
+        platform=Platform.SENSOR,
+        node_id=MOCK_CIRCUIT_UUID,
+        property_id="generation-power",
+        source_property_id="active-power",
+        name="Generation Power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit=UnitOfPower.WATT,
+    )
+    sensor = SpanEbusSensor(mock_panel, spec)
+
+    # unique_id uses property_id
+    assert "generation-power" in sensor._attr_unique_id
+    assert "active-power" not in sensor._attr_unique_id
+
+    # source_property_id is stored for subscription
+    assert sensor._source_property_id == "active-power"
+
+
 def test_energy_sensor_suppression_warning_logged(mock_panel, caplog):
     """WARNING logged on first decrease, not on subsequent ones."""
     import logging
