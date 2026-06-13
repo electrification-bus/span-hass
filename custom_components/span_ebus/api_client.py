@@ -168,4 +168,5 @@ class SpanApiClient:
 
         GET /api/v2/certificate/ca — no authentication required.
         """
-        return await self._get("/api/v2/certificate/ca")
+        result = await self._get("/api/v2/certificate/ca")
+        return str(result) if result is not None else ""

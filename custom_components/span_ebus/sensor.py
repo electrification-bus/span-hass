@@ -5,7 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -32,7 +36,6 @@ async def async_setup_entry(
         for spec in entity_specs
         if spec.platform == Platform.SENSOR
     ]
-
     if entities:
         async_add_entities(entities)
         _LOGGER.debug("Added %d sensor entities for %s", len(entities), panel.serial_number)
@@ -40,6 +43,16 @@ async def async_setup_entry(
 
 class SpanEbusSensor(SpanEbusEntity, SensorEntity):
     """A sensor entity for a SPAN Panel Homie property."""
+
+    _NUMERIC_DEVICE_CLASSES = {
+        SensorDeviceClass.POWER,
+        SensorDeviceClass.ENERGY,
+        SensorDeviceClass.ENERGY_STORAGE,
+        SensorDeviceClass.BATTERY,
+        SensorDeviceClass.CURRENT,
+        SensorDeviceClass.VOLTAGE,
+        SensorDeviceClass.DURATION,
+    }
 
     def __init__(self, panel: Any, spec: EntitySpec) -> None:
         """Initialize the sensor."""
@@ -52,61 +65,57 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
         self._attr_entity_category = spec.entity_category
         if spec.icon:
             self._attr_icon = spec.icon
-        self._counter_decrease_suppressed = False
 
-    _NUMERIC_DEVICE_CLASSES = {
-        SensorDeviceClass.POWER,
-        SensorDeviceClass.ENERGY,
-        SensorDeviceClass.BATTERY,
-        SensorDeviceClass.CURRENT,
-        SensorDeviceClass.VOLTAGE,
-        SensorDeviceClass.ENERGY_STORAGE,
-    }
+        # Per AN-001, suppress monotonicity-violating decreases on
+        # TOTAL_INCREASING energy counters — SPAN firmware occasionally
+        # recalibrates and would otherwise create MWh-scale false spikes in
+        # the HA recorder. We track the last numeric value separately from
+        # ``_attr_native_value`` because HA's StateType union is wider than
+        # float and mypy can't narrow it back for arithmetic.
+        self._counter_decrease_suppressed = False
+        self._last_numeric: float | None = None
 
     def _update_from_value(self, value: str) -> None:
         """Update sensor state from a raw MQTT value."""
         if self.device_class in self._NUMERIC_DEVICE_CLASSES:
             try:
                 numeric = float(value)
-                if self._spec.negate:
-                    numeric = -numeric
-                # Suppress counter decreases for total_increasing sensors.
-                # SPAN firmware may recalibrate energy counters while running,
-                # which corrupts HA recorder statistics (false MWh-scale spikes).
-                if (
-                    self._attr_state_class == SensorStateClass.TOTAL_INCREASING
-                    and self._attr_native_value is not None
-                    and numeric < self._attr_native_value
-                ):
-                    if not self._counter_decrease_suppressed:
-                        _LOGGER.warning(
-                            "Energy counter decrease suppressed for %s: "
-                            "%.1f → %.1f (Δ%.1f %s); holding previous value",
-                            self.entity_id,
-                            self._attr_native_value,
-                            numeric,
-                            self._attr_native_value - numeric,
-                            self._attr_native_unit_of_measurement or "",
-                        )
-                        self._counter_decrease_suppressed = True
-                    return
-                if self._counter_decrease_suppressed and numeric >= self._attr_native_value:
-                    _LOGGER.info(
-                        "Energy counter for %s caught up (%.1f); resuming normal tracking",
-                        self.entity_id,
-                        numeric,
-                    )
-                    self._counter_decrease_suppressed = False
-                self._attr_native_value = numeric
             except (ValueError, TypeError):
                 self._attr_native_value = None
-        elif self._property_id == "feed":
-            # Feed values are circuit node ID references — resolve to name
-            name = self._panel.get_property_value(value, "name")
-            if name:
-                self._attr_native_value = name
-                self._attr_extra_state_attributes = {"circuit_id": value}
-            else:
-                self._attr_native_value = value
+                self._last_numeric = None
+                return
+            if self._spec.negate:
+                numeric = -numeric
+            prev = self._last_numeric
+            if (
+                self._attr_state_class == SensorStateClass.TOTAL_INCREASING
+                and prev is not None
+                and numeric < prev
+            ):
+                if not self._counter_decrease_suppressed:
+                    _LOGGER.warning(
+                        "Energy counter decrease suppressed for %s: "
+                        "%.1f → %.1f (Δ%.1f %s); holding previous value",
+                        self.entity_id,
+                        prev,
+                        numeric,
+                        prev - numeric,
+                        self._attr_native_unit_of_measurement or "",
+                    )
+                    self._counter_decrease_suppressed = True
+                return
+            if (
+                self._counter_decrease_suppressed
+                and prev is not None
+                and numeric >= prev
+            ):
+                _LOGGER.info(
+                    "Energy counter for %s caught up (%.1f); resuming normal tracking",
+                    self.entity_id,
+                    numeric,
+                )
+                self._counter_decrease_suppressed = False
+            self._attr_native_value = numeric
+            self._last_numeric = numeric
         else:
             self._attr_native_value = value

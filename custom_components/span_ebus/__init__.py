@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from datetime import timedelta
 import logging
 import resource
 import sys
 import tracemalloc
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import async_track_time_interval
-
-from datetime import timedelta
 
 from .const import (
     CIRCUIT_NAMES_TIMEOUT,
@@ -27,57 +27,61 @@ from .const import (
     CONF_SERIAL_NUMBER,
     DESCRIPTION_TIMEOUT,
     DEVICE_READY_TIMEOUT,
+    DEVICE_TYPE_CIRCUIT,
     DOMAIN,
     PLATFORMS,
 )
-
-MEMORY_DIAG_INTERVAL = timedelta(minutes=30)
 from .services import async_setup_services
-from .util import _SUB_DEVICE_TYPES, panel_device_info, subdevice_info
+from .util import (
+    DEVICE_TYPE_LABELS,
+    descendant_device_info,
+    panel_device_info,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
+MEMORY_DIAG_INTERVAL = timedelta(minutes=30)
 
 _prev_snapshot: tracemalloc.Snapshot | None = None
 
 
-def _log_memory_diagnostics(panels: dict) -> None:
+def _log_memory_diagnostics(panels: dict[str, dict[str, Any]]) -> None:
     """Log memory diagnostics for all active SPAN panels."""
     global _prev_snapshot  # noqa: PLW0603
 
-    # Peak RSS in bytes (macOS returns bytes, Linux returns KB)
     peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     if sys.platform == "linux":
-        peak_rss *= 1024  # Linux ru_maxrss is in KB
+        peak_rss *= 1024
     peak_mb = peak_rss / (1024 * 1024)
 
-    # Traced memory from tracemalloc
     if tracemalloc.is_tracing():
-        traced_current, traced_peak = tracemalloc.get_traced_memory()
+        traced_current, _ = tracemalloc.get_traced_memory()
         traced_mb = traced_current / (1024 * 1024)
     else:
         traced_mb = 0.0
 
-    panel_stats = []
-    for entry_id, data in panels.items():
+    panel_stats: list[str] = []
+    for data in panels.values():
         panel = data.get("panel")
-        if panel and panel._controller:
-            ctrl = panel._controller
-            device_count = len(ctrl.devices)
-            sub_count = len(ctrl.mqttc.sub_callbacks) if ctrl.mqttc else 0
-            # Paho-mqtt internal message queues
-            paho_in = 0
-            paho_out = 0
-            if ctrl.mqttc and hasattr(ctrl.mqttc, "mqttc"):
-                paho = ctrl.mqttc.mqttc
-                if hasattr(paho, "_in_messages"):
-                    paho_in = len(paho._in_messages)
-                if hasattr(paho, "_out_messages"):
-                    paho_out = len(paho._out_messages)
-            panel_stats.append(
-                f"{panel.serial_number}(devices={device_count},subs={sub_count},"
-                f"paho_in={paho_in},paho_out={paho_out})"
-            )
+        if panel is None:
+            continue
+        ctrl = getattr(panel, "controller", None)
+        if ctrl is None:
+            continue
+        device_count = len(ctrl.devices)
+        sub_count = len(ctrl.mqttc.sub_callbacks) if ctrl.mqttc else 0
+        paho_in = 0
+        paho_out = 0
+        if ctrl.mqttc and hasattr(ctrl.mqttc, "mqttc"):
+            paho = ctrl.mqttc.mqttc
+            if hasattr(paho, "_in_messages"):
+                paho_in = len(paho._in_messages)
+            if hasattr(paho, "_out_messages"):
+                paho_out = len(paho._out_messages)
+        panel_stats.append(
+            f"{panel.serial_number}(devices={device_count},subs={sub_count},"
+            f"paho_in={paho_in},paho_out={paho_out})"
+        )
 
     _LOGGER.info(
         "Memory diagnostics: peak_rss=%.1fMB, traced=%.1fMB, panels=[%s]",
@@ -86,12 +90,10 @@ def _log_memory_diagnostics(panels: dict) -> None:
         ", ".join(panel_stats) if panel_stats else "none",
     )
 
-    # Snapshot — log top allocators
     if tracemalloc.is_tracing():
         try:
             snapshot = tracemalloc.take_snapshot()
-            top_alloc = snapshot.statistics("filename")
-            for i, stat in enumerate(top_alloc[:5], 1):
+            for i, stat in enumerate(snapshot.statistics("filename")[:5], 1):
                 _LOGGER.info("tracemalloc top %d: %s", i, stat)
             _prev_snapshot = snapshot
         except Exception:
@@ -101,17 +103,14 @@ def _log_memory_diagnostics(panels: dict) -> None:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up SPAN Panel (eBus) from a config entry."""
     # Import here so the config flow can be discovered before ebus-sdk is installed.
-    # HA installs manifest requirements between config flow and setup_entry.
-    from .node_mappers import entities_from_description  # noqa: PLC0415
+    from .node_mappers import entities_from_tree  # noqa: PLC0415
     from .span_panel import SpanPanel  # noqa: PLC0415
 
-    # Register services once (first entry only)
     if not hass.services.has_service(DOMAIN, "link_subpanel"):
         await async_setup_services(hass)
 
     serial_number = entry.data[CONF_SERIAL_NUMBER]
 
-    # Build MQTT config dict for the SDK
     mqtt_cfg = {
         "host": entry.data[CONF_EBUS_BROKER_HOST],
         "port": entry.data[CONF_EBUS_BROKER_PORT],
@@ -126,11 +125,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
 
     panel = SpanPanel(hass, serial_number, mqtt_cfg)
-
-    # Start the MQTT Controller
     await panel.async_start()
 
-    # Wait for the $description to arrive so we know what entities to create
     try:
         await asyncio.wait_for(
             panel.description_received.wait(), timeout=DESCRIPTION_TIMEOUT
@@ -148,127 +144,130 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             f"No description received from SPAN Panel {serial_number}"
         )
 
-    # Log description node summary for diagnostics
-    nodes = description.get("nodes", {})
-    node_types = {}
-    for node_desc in nodes.values():
-        ntype = node_desc.get("type", "unknown")
-        node_types[ntype] = node_types.get(ntype, 0) + 1
-    _LOGGER.debug(
-        "SPAN Panel %s: description has %d nodes: %s",
-        serial_number,
-        len(nodes),
-        ", ".join(f"{v}x {k}" for k, v in sorted(node_types.items())),
-    )
-
-    # Wait for the device to reach "ready" — $state=ready arrived via MQTT.
-    # Note: this does NOT guarantee all retained property values have been
-    # received; see _wait_for_circuit_names below.
     try:
         await asyncio.wait_for(
             panel.device_ready.wait(), timeout=DEVICE_READY_TIMEOUT
         )
     except TimeoutError:
         _LOGGER.warning(
-            "SPAN Panel %s: timed out waiting for ready state, "
-            "proceeding with available data",
+            "SPAN Panel %s: timed out waiting for root ready state; "
+            "proceeding with available descendants",
             serial_number,
         )
 
-    # Wait for circuit name properties to arrive via MQTT.
-    # The SDK fires device_ready when $state=ready arrives, but retained
-    # property values (including circuit names) may still be in flight.
-    # Entity IDs are frozen at creation time, so we must have the real
-    # circuit names before proceeding.
-    circuit_node_ids = [
-        node_id
-        for node_id, node_desc in nodes.items()
-        if node_desc.get("type") == "energy.ebus.device.circuit"
+    controller = panel.controller
+    assert controller is not None  # async_start was awaited successfully
+
+    circuit_device_ids = [
+        device_id
+        for device_id, dev in controller.devices.items()
+        if (dev.description or {}).get("type") == f"energy.ebus.device.{DEVICE_TYPE_CIRCUIT}"
     ]
-    if circuit_node_ids:
+    if circuit_device_ids:
         names_ok = await _wait_for_circuit_names(
-            panel, circuit_node_ids, CIRCUIT_NAMES_TIMEOUT
+            panel, circuit_device_ids, CIRCUIT_NAMES_TIMEOUT
         )
-        if names_ok:
-            _LOGGER.debug(
-                "SPAN Panel %s: all %d circuit names available",
-                serial_number,
-                len(circuit_node_ids),
-            )
-        else:
+        if not names_ok:
             available = sum(
                 1
-                for nid in circuit_node_ids
-                if panel.get_property_value(nid, "name") is not None
+                for cid in circuit_device_ids
+                if panel.get_property_value(cid, "info", "name") is not None
             )
             _LOGGER.warning(
                 "SPAN Panel %s: timed out waiting for circuit names "
                 "(%d/%d available), using fallback names for remainder",
                 serial_number,
                 available,
-                len(circuit_node_ids),
+                len(circuit_device_ids),
             )
 
-    # Map the $description to entity specs (circuit names now available)
-    entity_specs = entities_from_description(description, panel=panel)
+    # Devices are passed by reference to the mapper layer; node_mappers' walker
+    # reads description + properties from each entry. Pass a snapshot so we
+    # have a stable view during this setup pass.
+    tree_snapshot = _controller_devices_to_snapshot(controller.devices)
+    entity_specs = entities_from_tree(tree_snapshot)
     _LOGGER.debug(
-        "SPAN Panel %s: %d entities from description", serial_number, len(entity_specs)
+        "SPAN Panel %s: %d entity specs from tree walk (%d devices)",
+        serial_number,
+        len(entity_specs),
+        len(controller.devices),
     )
 
-    # Register the panel device in the device registry
+    # Stamp per-spec device-presentation fields that depend on runtime state
+    # (e.g. circuit info/name → HA device name) before passing to platforms.
+    _stamp_device_presentation(panel, controller, entity_specs)
+
     device_registry = dr.async_get(hass)
-    firmware = panel.get_property_value("core", "software-version") or ""
+    firmware = panel.get_property_value(serial_number, "info", "firmware-version") or (
+        panel.get_property_value(serial_number, "info", "software-version") or ""
+    )
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         **panel_device_info(serial_number, firmware),
     )
 
-    # Register sub-devices (circuits, BESS, PV, EVSE) as children of the panel
-    _register_subdevices(device_registry, entry.entry_id, serial_number, entity_specs)
+    _register_descendants(
+        device_registry, entry.entry_id, panel, controller, entity_specs
+    )
 
-    # Reactively update circuit device names when the "name" property arrives
-    # via MQTT (retained values may arrive after entity creation).
-    # Store unregister functions so we can clean up in async_unload_entry.
     unregister_callbacks: list[Callable[[], None]] = []
 
-    circuit_node_ids = {
-        spec.node_id
-        for spec in entity_specs
-        if spec.node_type == "energy.ebus.device.circuit"
-    }
-    for node_id in circuit_node_ids:
-        _node = node_id  # capture for closure
+    # Reactively update circuit device names when info/name arrives via MQTT.
+    for circuit_device_id in circuit_device_ids:
+        _cid = circuit_device_id
 
-        def _on_name_update(value: str, nid: str = _node) -> None:
+        def _on_name_update(value: str, cid: str = _cid) -> None:
             _LOGGER.debug(
-                "Circuit %s name updated to '%s', updating device registry", nid, value
+                "Circuit %s name updated to '%s'; refreshing device registry", cid, value
             )
             dev_reg = dr.async_get(hass)
             dev_reg.async_get_or_create(
                 config_entry_id=entry.entry_id,
-                **subdevice_info(
-                    serial_number, nid, "energy.ebus.device.circuit", value
+                **descendant_device_info(
+                    panel_serial=panel.serial_number,
+                    device_id=cid,
+                    device_type=DEVICE_TYPE_CIRCUIT,
+                    device_name=value,
                 ),
             )
 
         unregister_callbacks.append(
-            panel.register_property_callback(node_id, "name", _on_name_update)
+            panel.register_property_callback(
+                circuit_device_id, "info", "name", _on_name_update
+            )
         )
 
-    # Also refresh all device names on every "ready" transition
-    # (covers reconnections, firmware updates, circuit renames, etc.)
     def _on_ready() -> None:
-        _LOGGER.info("SPAN Panel %s became ready, refreshing device names", serial_number)
-        refreshed = entities_from_description(
-            panel.description or {}, panel=panel
+        _LOGGER.info(
+            "SPAN Panel %s ready transition — refreshing descendant device-registry names",
+            serial_number,
         )
-        _register_subdevices(
-            dr.async_get(hass), entry.entry_id, serial_number, refreshed
+        if panel.controller is None:
+            return
+        refreshed_snapshot = _controller_devices_to_snapshot(panel.controller.devices)
+        refreshed_specs = entities_from_tree(refreshed_snapshot)
+        _stamp_device_presentation(panel, panel.controller, refreshed_specs)
+        _register_descendants(
+            dr.async_get(hass), entry.entry_id, panel, panel.controller, refreshed_specs
         )
 
     unregister_callbacks.append(panel.register_ready_callback(_on_ready))
 
-    # Store panel, specs, and cleanup functions for platform setup / unload
+    def _on_device_removed(device_id: str) -> None:
+        _LOGGER.info(
+            "SPAN Panel %s: descendant %s dropped; removing from HA device registry",
+            serial_number,
+            device_id,
+        )
+        dev_reg = dr.async_get(hass)
+        ha_device = dev_reg.async_get_device(
+            identifiers={(DOMAIN, f"{panel.serial_number}_{device_id}")}
+        )
+        if ha_device is not None:
+            dev_reg.async_remove_device(ha_device.id)
+
+    unregister_callbacks.append(panel.register_device_removed_callback(_on_device_removed))
+
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "panel": panel,
@@ -276,13 +275,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "unregister_callbacks": unregister_callbacks,
     }
 
-    # Start tracemalloc and periodic memory diagnostics (once, on first panel setup)
     if "_memory_diag_unsub" not in hass.data[DOMAIN]:
         if not tracemalloc.is_tracing():
             tracemalloc.start()
             _LOGGER.info("tracemalloc started for memory leak diagnostics")
 
-        def _diag_callback(_now) -> None:
+        def _diag_callback(_now: Any) -> None:
             panels = {
                 eid: data
                 for eid, data in hass.data.get(DOMAIN, {}).items()
@@ -294,55 +292,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass, _diag_callback, MEMORY_DIAG_INTERVAL
         )
 
-    # Forward setup to each platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
     return True
 
 
 async def _wait_for_circuit_names(
-    panel: "SpanPanel",
-    circuit_node_ids: list[str],
+    panel: Any,
+    circuit_device_ids: list[str],
     timeout: float,
 ) -> bool:
-    """Wait for circuit name properties to arrive via MQTT.
+    """Wait for every circuit's ``info/name`` property to arrive via MQTT.
 
-    Per the Homie Convention, $description declares the full set of nodes
-    and properties that the device has published.  $state=ready means the
-    device has sent everything, but MQTT does not guarantee delivery order.
-    We know these "name" properties are coming — wait for them.
-
-    Registers a property callback for each missing circuit name and awaits
-    the corresponding asyncio.Event.  Returns True if all names arrived
-    within the timeout, False otherwise.
+    Circuit user-labels are retained MQTT topics — they normally arrive
+    shortly after ``$state=ready``, but the integration freezes entity_id at
+    creation time so it's worth a brief wait.
     """
-    # Check which names are already present
     missing = [
-        nid
-        for nid in circuit_node_ids
-        if panel.get_property_value(nid, "name") is None
+        cid for cid in circuit_device_ids
+        if panel.get_property_value(cid, "info", "name") is None
     ]
     if not missing:
         return True
 
-    # Create an event per missing name and register callbacks
-    events: dict[str, asyncio.Event] = {nid: asyncio.Event() for nid in missing}
+    events: dict[str, asyncio.Event] = {cid: asyncio.Event() for cid in missing}
     unregs: list[Callable[[], None]] = []
 
-    for nid in missing:
-        _nid = nid  # capture for closure
+    for cid in missing:
+        _cid = cid
 
-        def _on_name(value: str, n: str = _nid) -> None:
-            events[n].set()
+        def _on_name(value: str, c: str = _cid) -> None:
+            events[c].set()
 
-        unregs.append(panel.register_property_callback(nid, "name", _on_name))
+        unregs.append(panel.register_property_callback(cid, "info", "name", _on_name))
 
-    # Re-check after registration in case values arrived between the
-    # initial check and callback registration (paho-mqtt thread may have
-    # updated device.properties in the meantime).
-    for nid in missing:
-        if panel.get_property_value(nid, "name") is not None:
-            events[nid].set()
+    # Re-check after registration in case values arrived between the initial
+    # poll and the callback hookup.
+    for cid in missing:
+        if panel.get_property_value(cid, "info", "name") is not None:
+            events[cid].set()
 
     try:
         await asyncio.wait_for(
@@ -357,26 +344,87 @@ async def _wait_for_circuit_names(
             unreg()
 
 
-def _register_subdevices(
-    device_registry: dr.DeviceRegistry,
-    config_entry_id: str,
-    serial_number: str,
+def _controller_devices_to_snapshot(
+    devices: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Adapt the live Controller.devices dict to the snapshot shape the walker expects.
+
+    ``DiscoveredDevice`` carries the same fields the fixture snapshots do —
+    description, properties, parent_id, children_ids, is_root, root_id —
+    just as attributes rather than dict keys. Materialise a dict-of-dicts so
+    ``entities_from_tree`` doesn't need to know the runtime type.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for device_id, dev in devices.items():
+        out[device_id] = {
+            "description": dev.description or {},
+            "properties": dict(dev.properties or {}),
+            "parent_id": getattr(dev, "parent_id", None),
+            "children_ids": list(getattr(dev, "children_ids", []) or []),
+            "is_root": getattr(dev, "is_root", device_id == device_id),
+            "root_id": getattr(dev, "root_id", device_id),
+        }
+    return out
+
+
+def _stamp_device_presentation(
+    panel: Any,
+    controller: Any,
     entity_specs: list,
 ) -> None:
-    """Register or update sub-devices (circuits, BESS, PV, EVSE) in the device registry."""
-    from .node_mappers import EntitySpec  # noqa: PLC0415
+    """Fill in spec.device_type / spec.device_name / spec.via_device_id.
 
-    seen: set[str] = set()
-    spec: EntitySpec
+    Mappers can't reach across devices, so the per-entity HA presentation
+    fields are stamped here at the integration layer. Circuit names come from
+    the circuit's own ``info/name``; other descendants get a generated label
+    derived from the device class.
+    """
+    from .node_mappers import device_type_short  # noqa: PLC0415
+
     for spec in entity_specs:
-        if spec.node_type in _SUB_DEVICE_TYPES and spec.node_id not in seen:
-            seen.add(spec.node_id)
-            device_registry.async_get_or_create(
-                config_entry_id=config_entry_id,
-                **subdevice_info(
-                    serial_number, spec.node_id, spec.node_type, spec.device_name
-                ),
-            )
+        dev = controller.devices.get(spec.device_id)
+        if dev is None:
+            continue
+        dtype = device_type_short((dev.description or {}).get("type", "")) or ""
+        spec.device_type = dtype
+        spec.via_device_id = getattr(dev, "parent_id", None) or panel.serial_number
+
+        if spec.device_id == panel.serial_number:
+            spec.device_name = ""  # panel device handled separately
+            continue
+
+        if dtype == DEVICE_TYPE_CIRCUIT:
+            label = panel.get_property_value(spec.device_id, "info", "name")
+            spec.device_name = label or f"Circuit {spec.device_id[:6]}"
+        else:
+            type_label = DEVICE_TYPE_LABELS.get(dtype, dtype.title())
+            short_serial = panel.serial_number.rsplit("-", 1)[-1]
+            spec.device_name = f"{short_serial} {type_label}"
+
+
+def _register_descendants(
+    device_registry: dr.DeviceRegistry,
+    config_entry_id: str,
+    panel: Any,
+    controller: Any,
+    entity_specs: list,
+) -> None:
+    """Register or update descendant HA devices in the device registry."""
+    seen: set[str] = set()
+    for spec in entity_specs:
+        if spec.device_id == panel.serial_number or spec.device_id in seen:
+            continue
+        seen.add(spec.device_id)
+        device_registry.async_get_or_create(
+            config_entry_id=config_entry_id,
+            **descendant_device_info(
+                panel_serial=panel.serial_number,
+                device_id=spec.device_id,
+                device_type=spec.device_type,
+                device_name=spec.device_name,
+                parent_device_id=spec.via_device_id,
+            ),
+        )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -386,13 +434,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         data = hass.data[DOMAIN].pop(entry.entry_id, None)
         if data:
-            # Unregister name-update and ready callbacks before stopping
             for unreg in data.get("unregister_callbacks", []):
                 unreg()
-            panel: SpanPanel = data["panel"]
-            await panel.async_stop()
+            await data["panel"].async_stop()
 
-        # If no more panels, cancel the memory diagnostics timer
         remaining = {
             k for k in hass.data.get(DOMAIN, {})
             if k != "_memory_diag_unsub"

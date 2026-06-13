@@ -32,14 +32,13 @@ async def async_setup_entry(
         for spec in entity_specs
         if spec.platform == Platform.SWITCH
     ]
-
     if entities:
         async_add_entities(entities)
         _LOGGER.debug("Added %d switch entities for %s", len(entities), panel.serial_number)
 
 
 class SpanEbusSwitch(SpanEbusEntity, SwitchEntity):
-    """A switch entity for a SPAN Panel circuit relay."""
+    """A switch entity for a SPAN circuit relay (or shed override)."""
 
     def __init__(self, panel: Any, spec: EntitySpec) -> None:
         """Initialize the switch."""
@@ -48,13 +47,27 @@ class SpanEbusSwitch(SpanEbusEntity, SwitchEntity):
             self._attr_icon = spec.icon
 
     def _update_from_value(self, value: str) -> None:
-        """Update switch state from relay value (CLOSED=on, OPEN=off)."""
-        self._attr_is_on = value.upper() == "CLOSED"
+        """Map publisher's enum / boolean state to HA's on/off."""
+        # Circuit relay: CLOSED=on, OPEN=off. Shed override: true=on, false=off.
+        upper = value.upper()
+        if upper in {"CLOSED", "TRUE", "ON", "1", "YES"}:
+            self._attr_is_on = True
+        elif upper in {"OPEN", "FALSE", "OFF", "0", "NO"}:
+            self._attr_is_on = False
+        else:
+            self._attr_is_on = None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the relay on (CLOSED)."""
-        self._panel.set_property(self._node_id, self._property_id, "CLOSED")
+        """Send the on-side value the publisher expects."""
+        # Relay switches use CLOSED/OPEN; everything else (override etc.) takes a boolean.
+        payload = "CLOSED" if self._property_id == "relay" else "true"
+        self._panel.set_property(
+            self._device_id, self._capability, self._property_id, payload
+        )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the relay off (OPEN)."""
-        self._panel.set_property(self._node_id, self._property_id, "OPEN")
+        """Send the off-side value the publisher expects."""
+        payload = "OPEN" if self._property_id == "relay" else "false"
+        self._panel.set_property(
+            self._device_id, self._capability, self._property_id, payload
+        )

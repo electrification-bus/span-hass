@@ -17,8 +17,8 @@ from .node_mappers import EntitySpec
 
 _LOGGER = logging.getLogger(__name__)
 
-# Values that indicate "on" / True for boolean-typed binary sensors.
-# Enum-typed binary sensors should use EntitySpec.on_values instead.
+# Default truthy values for boolean-typed binary sensors. Enum-typed sensors
+# should use EntitySpec.on_values to scope precisely.
 _TRUTHY = {"true", "1", "on", "yes", "connected", "active"}
 
 
@@ -36,21 +36,21 @@ async def async_setup_entry(
         for spec in entity_specs
         if spec.platform == Platform.BINARY_SENSOR
     ]
-
     if entities:
         async_add_entities(entities)
         _LOGGER.debug(
-            "Added %d binary sensor entities for %s", len(entities), panel.serial_number
+            "Added %d binary sensor entities for %s",
+            len(entities),
+            panel.serial_number,
         )
 
 
 class SpanEbusBinarySensor(SpanEbusEntity, BinarySensorEntity):
-    """A binary sensor entity for a SPAN Panel Homie property."""
+    """A binary sensor entity for a SPAN boolean or PROBLEM-class enum property."""
 
     def __init__(self, panel: Any, spec: EntitySpec) -> None:
         """Initialize the binary sensor."""
         super().__init__(panel=panel, spec=spec)
-
         self._attr_device_class = spec.device_class
         self._attr_entity_category = spec.entity_category
         if spec.icon:
@@ -58,7 +58,7 @@ class SpanEbusBinarySensor(SpanEbusEntity, BinarySensorEntity):
         self._on_values = spec.on_values
 
     def _update_from_value(self, value: str) -> None:
-        """Update binary sensor state from a raw MQTT value."""
+        """Map publisher's enum / boolean state to HA's on/off."""
         if self._on_values:
             self._attr_is_on = value.upper() in self._on_values
         else:

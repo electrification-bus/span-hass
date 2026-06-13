@@ -117,7 +117,7 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
             "serial": self._serial_number,
         }
 
-        if err := await self._fetch_status():
+        if await self._fetch_status():
             return self.async_abort(reason="cannot_connect")
 
         return await self.async_step_auth_menu()

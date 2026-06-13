@@ -85,9 +85,8 @@ async def test_link_subpanel_missing_parent(hass, dev_reg):
 
     with patch(
         "custom_components.span_ebus.services.dr.async_get", return_value=dev_reg
-    ):
-        with pytest.raises(HomeAssistantError, match="Parent panel.*not found"):
-            await handler(call)
+    ), pytest.raises(HomeAssistantError, match="Parent panel.*not found"):
+        await handler(call)
 
 
 @pytest.mark.asyncio
@@ -106,6 +105,5 @@ async def test_link_subpanel_missing_sub(hass, dev_reg):
 
     with patch(
         "custom_components.span_ebus.services.dr.async_get", return_value=dev_reg
-    ):
-        with pytest.raises(HomeAssistantError, match="Sub-panel.*not found"):
-            await handler(call)
+    ), pytest.raises(HomeAssistantError, match="Sub-panel.*not found"):
+        await handler(call)

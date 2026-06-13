@@ -32,14 +32,13 @@ async def async_setup_entry(
         for spec in entity_specs
         if spec.platform == Platform.SELECT
     ]
-
     if entities:
         async_add_entities(entities)
         _LOGGER.debug("Added %d select entities for %s", len(entities), panel.serial_number)
 
 
 class SpanEbusSelect(SpanEbusEntity, SelectEntity):
-    """A select entity for a SPAN Panel circuit priority."""
+    """A select entity for a SPAN settable enum (shed-priority etc.)."""
 
     def __init__(self, panel: Any, spec: EntitySpec) -> None:
         """Initialize the select."""
@@ -49,18 +48,18 @@ class SpanEbusSelect(SpanEbusEntity, SelectEntity):
             self._attr_icon = spec.icon
 
     def _update_from_value(self, value: str) -> None:
-        """Update select state from a raw MQTT value."""
-        if value in self._attr_options:
-            self._attr_current_option = value
-        else:
+        """Update the current_option from a raw MQTT value."""
+        if value not in self._attr_options:
             _LOGGER.warning(
-                "Received unknown option '%s' for %s (known: %s)",
+                "Unknown option '%s' for %s (known: %s)",
                 value,
                 self._attr_unique_id,
                 self._attr_options,
             )
-            self._attr_current_option = value
+        self._attr_current_option = value
 
     async def async_select_option(self, option: str) -> None:
-        """Send selected option to the panel."""
-        self._panel.set_property(self._node_id, self._property_id, option)
+        """Send the selected option to the panel."""
+        self._panel.set_property(
+            self._device_id, self._capability, self._property_id, option
+        )

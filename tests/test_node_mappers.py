@@ -1,1002 +1,1147 @@
-"""Tests for node_mappers — $description → HA entity specs."""
+"""Tests for the tree-data-model node mappers.
+
+Phase 1 coverage: the dispatcher walks a tree-v1 snapshot end-to-end, the two
+fully-implemented mappers (``(distribution-enclosure, info)`` and
+``(distribution-enclosure, door)``) produce correct EntitySpecs, and the 24
+stubbed mappers don't crash. Phase 2 will add per-mapper coverage as those land.
+"""
 
 from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
+    PERCENTAGE,
     EntityCategory,
     Platform,
     UnitOfElectricCurrent,
+    UnitOfElectricPotential,
     UnitOfEnergy,
     UnitOfPower,
+    UnitOfTime,
 )
+import pytest
 
+from custom_components.span_ebus.const import (
+    CAPABILITY_CONFIG,
+    CAPABILITY_CONNECTION,
+    CAPABILITY_DOOR,
+    CAPABILITY_GRID,
+    CAPABILITY_INFO,
+    CAPABILITY_METER,
+    CAPABILITY_PCS,
+    CAPABILITY_POWER_FLOWS,
+    CAPABILITY_PRIORITY,
+    CAPABILITY_SHED,
+    CAPABILITY_SHED_FORECAST,
+    CAPABILITY_SOC,
+    CAPABILITY_STATUS,
+    CAPABILITY_SWITCH,
+    DEVICE_TYPE_DISTRIBUTION_ENCLOSURE,
+)
 from custom_components.span_ebus.node_mappers import (
+    CAPABILITY_MAPPERS,
+    EntitySpec,
+    _map_bess_info,
+    _map_bess_soc,
+    _map_circuit_connection,
+    _map_circuit_info,
+    _map_circuit_meter,
+    _map_circuit_priority,
+    _map_circuit_switch,
+    _map_enclosure_door,
+    _map_enclosure_info,
+    _map_enclosure_meter,
+    _map_enclosure_pcs,
+    _map_enclosure_power_flows,
+    _map_enclosure_shed,
+    _map_enclosure_shed_forecast,
+    _map_enclosure_status,
+    _map_evse_config,
+    _map_evse_info,
+    _map_evse_meter,
+    _map_evse_status,
+    _map_evse_switch,
+    _map_lugs_connection,
+    _map_lugs_info,
+    _map_lugs_meter,
+    _map_mid_grid,
+    _map_mid_info,
+    _map_pv_info,
     _parse_enum_format,
-    entities_from_description,
+    device_type_short,
+    entities_from_tree,
 )
 
-from .conftest import MOCK_CIRCUIT_UUID, MOCK_DESCRIPTION
+FIXTURES = Path(__file__).parent / "fixtures" / "tree"
 
 
-def test_entities_from_description():
-    """Test that entities are created from mock description."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    assert len(specs) > 0
-
-    # Check we got the expected platforms
-    platforms = {s.platform for s in specs}
-    assert Platform.SENSOR in platforms
-    assert Platform.BINARY_SENSOR in platforms
-    assert Platform.SWITCH in platforms
-    assert Platform.SELECT in platforms
+def _load(name: str) -> dict[str, Any]:
+    """Load a tree-v1 snapshot fixture and return its ``devices`` map."""
+    with (FIXTURES / name).open() as fh:
+        data = json.load(fh)
+    assert data["metadata"]["schema"] == "tree-v1"
+    return data["devices"]
 
 
-def test_core_door_binary_sensor():
-    """Test core door produces a tamper binary sensor."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    door = [s for s in specs if s.node_id == "core" and s.property_id == "door"]
-    assert len(door) == 1
-    assert door[0].platform == Platform.BINARY_SENSOR
-    assert door[0].device_class == BinarySensorDeviceClass.TAMPER
+# ── device_type_short ─────────────────────────────────────────────────────
 
 
-def test_core_ethernet_connectivity():
-    """Test core ethernet produces a connectivity binary sensor."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    eth = [s for s in specs if s.node_id == "core" and s.property_id == "ethernet"]
-    assert len(eth) == 1
-    assert eth[0].device_class == BinarySensorDeviceClass.CONNECTIVITY
-    assert eth[0].entity_category == EntityCategory.DIAGNOSTIC
+def test_device_type_short_strips_prefix() -> None:
+    assert device_type_short("energy.ebus.device.distribution-enclosure") == "distribution-enclosure"
+    assert device_type_short("energy.ebus.device.bess") == "bess"
+    assert device_type_short("energy.ebus.device.mid") == "mid"
 
 
-def test_core_software_version_diagnostic_sensor():
-    """Test core software-version produces a diagnostic sensor."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    fw = [s for s in specs if s.property_id == "software-version"]
-    assert len(fw) == 1
-    assert fw[0].platform == Platform.SENSOR
-    assert fw[0].entity_category == EntityCategory.DIAGNOSTIC
+def test_device_type_short_rejects_non_ebus() -> None:
+    assert device_type_short("homie.device.thermostat") is None
+    assert device_type_short("") is None
 
 
-def test_circuit_relay_switch():
-    """Test circuit relay produces a switch."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    relay = [
-        s for s in specs
-        if s.node_id == MOCK_CIRCUIT_UUID and s.property_id == "relay"
-    ]
-    assert len(relay) == 1
-    assert relay[0].platform == Platform.SWITCH
-    assert relay[0].settable is True
+# ── _map_enclosure_info ───────────────────────────────────────────────────
 
 
-def test_circuit_active_power_sensor():
-    """Test circuit active-power produces a power sensor in W.
-
-    Firmware bug: schema declares kW but values are actually watts.
-    """
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    power = [
-        s for s in specs
-        if s.node_id == MOCK_CIRCUIT_UUID and s.property_id == "active-power"
-    ]
-    assert len(power) == 1
-    assert power[0].device_class == SensorDeviceClass.POWER
-    assert power[0].state_class == SensorStateClass.MEASUREMENT
-    assert power[0].native_unit == UnitOfPower.WATT
-    assert power[0].negate is True
-
-
-def test_circuit_energy_sensors():
-    """Test circuit energy properties produce TOTAL_INCREASING sensors."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    energy = [
-        s for s in specs
-        if s.node_id == MOCK_CIRCUIT_UUID and "energy" in s.property_id
-    ]
-    assert len(energy) == 2
-    for e in energy:
-        assert e.device_class == SensorDeviceClass.ENERGY
-        assert e.state_class == SensorStateClass.TOTAL_INCREASING
-        assert e.native_unit == UnitOfEnergy.WATT_HOUR
-
-
-def test_circuit_shed_priority_select():
-    """Test circuit shed-priority produces a select with options."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    priority = [
-        s for s in specs
-        if s.node_id == MOCK_CIRCUIT_UUID and s.property_id == "shed-priority"
-    ]
-    assert len(priority) == 1
-    assert priority[0].platform == Platform.SELECT
-    assert priority[0].options == ["MUST_HAVE", "NICE_TO_HAVE", "NON_ESSENTIAL"]
-    assert priority[0].settable is True
-
-
-def test_circuit_naming_with_panel():
-    """Test circuit device_name uses panel name when available."""
-    from unittest.mock import MagicMock
-
-    panel = MagicMock()
-    panel.serial_number = "nt-0000-abc12"
-    panel.get_property_value = MagicMock(return_value="Kitchen")
-
-    specs = entities_from_description(MOCK_DESCRIPTION, panel=panel)
-    relay = [
-        s for s in specs
-        if s.node_id == MOCK_CIRCUIT_UUID and s.property_id == "relay"
-    ]
-    assert len(relay) == 1
-    # Entity name is relative (just "Relay"), device_name has the circuit label
-    assert relay[0].name == "Relay"
-    assert relay[0].device_name == "Kitchen"
-    assert relay[0].node_type == "energy.ebus.device.circuit"
-
-
-def test_circuit_naming_fallback():
-    """Test circuit device_name falls back to short UUID without panel."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    relay = [
-        s for s in specs
-        if s.node_id == MOCK_CIRCUIT_UUID and s.property_id == "relay"
-    ]
-    assert len(relay) == 1
-    # Entity name is relative, device_name uses UUID fallback
-    assert relay[0].name == "Relay"
-    assert MOCK_CIRCUIT_UUID[:6] in relay[0].device_name
-
-
-def test_power_flows_sensors():
-    """Test power-flows node produces power sensors."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    pf = [s for s in specs if s.node_id == "power-flows"]
-    assert len(pf) == 2
-    for s in pf:
-        assert s.device_class == SensorDeviceClass.POWER
-        assert s.native_unit == UnitOfPower.WATT
-
-
-def test_parse_enum_format():
-    """Test parsing Homie enum format strings."""
-    assert _parse_enum_format("OPEN,CLOSED") == ["OPEN", "CLOSED"]
-    assert _parse_enum_format("a, b, c") == ["a", "b", "c"]
-    assert _parse_enum_format("") == []
-
-
-def test_unknown_nodes_skipped():
-    """Test that unknown node types are silently skipped."""
-    desc = {
-        "nodes": {
-            "unknown-thing": {
-                "name": "Unknown",
-                "type": "mystery",
-                "properties": {
-                    "something": {"name": "Foo", "datatype": "string"},
-                },
-            }
-        }
+def test_map_enclosure_info_emits_one_spec_per_declared_property() -> None:
+    properties = {
+        "vendor-name": {"datatype": "string"},
+        "model": {"datatype": "enum", "format": "MAIN_32"},
+        "serial-number": {"datatype": "string"},
+        "hardware-version": {"datatype": "string"},
+        "firmware-version": {"datatype": "string"},
+        "data-model-version": {"datatype": "string"},
     }
-    specs = entities_from_description(desc)
-    assert len(specs) == 0
+    specs = _map_enclosure_info("nt-test-abc12", CAPABILITY_INFO, properties, {})
+    assert len(specs) == 6
+    for spec in specs:
+        assert spec.device_id == "nt-test-abc12"
+        assert spec.capability == CAPABILITY_INFO
+        assert spec.platform == Platform.SENSOR
+        assert spec.entity_category == EntityCategory.DIAGNOSTIC
 
-
-def test_empty_description():
-    """Test that empty description produces no specs."""
-    assert entities_from_description({}) == []
-    assert entities_from_description({"nodes": {}}) == []
-
-
-def test_bess_node():
-    """Test battery storage node creates SOC, SOE, and power sensors."""
-    desc = {
-        "nodes": {
-            "bess": {
-                "name": "Battery",
-                "type": "energy.ebus.device.bess",
-                "properties": {
-                    "soc": {
-                        "name": "State of Charge",
-                        "datatype": "float",
-                        "unit": "%",
-                    },
-                    "soe": {
-                        "name": "State of Energy",
-                        "datatype": "float",
-                        "unit": "kWh",
-                    },
-                    "power-w": {
-                        "name": "Battery Power",
-                        "datatype": "float",
-                        "unit": "W",
-                    },
-                },
-            }
-        }
+    property_ids = {s.property_id for s in specs}
+    assert property_ids == {
+        "vendor-name",
+        "model",
+        "serial-number",
+        "hardware-version",
+        "firmware-version",
+        "data-model-version",
     }
-    specs = entities_from_description(desc)
-    assert len(specs) == 3
-    soc = [s for s in specs if s.property_id == "soc"][0]
-    assert soc.device_class == SensorDeviceClass.BATTERY
-    assert soc.native_unit == "%"
-    soe = [s for s in specs if s.property_id == "soe"][0]
-    assert soe.device_class == SensorDeviceClass.ENERGY_STORAGE
-    assert soe.native_unit == UnitOfEnergy.KILO_WATT_HOUR
-    power = [s for s in specs if "power" in s.property_id][0]
-    assert power.device_class == SensorDeviceClass.POWER
 
 
-def test_pv_node():
-    """Test PV (solar) node creates power/energy sensors."""
-    desc = {
-        "nodes": {
-            "pv": {
-                "name": "Solar",
-                "type": "energy.ebus.device.pv",
-                "properties": {
-                    "power-w": {"name": "Power", "datatype": "float", "unit": "W"},
-                    "energy-wh": {"name": "Energy", "datatype": "float", "unit": "Wh"},
-                },
-            }
-        }
+def test_map_enclosure_info_handles_legacy_software_version() -> None:
+    """Snapshots predating the firmware-side rename still publish software-version."""
+    properties = {
+        "vendor-name": {"datatype": "string"},
+        "software-version": {"datatype": "string"},
+        "data-model-version": {"datatype": "string"},
     }
-    specs = entities_from_description(desc)
-    assert len(specs) == 2
+    specs = _map_enclosure_info("nt-test-abc12", CAPABILITY_INFO, properties, {})
+    versions = [s for s in specs if s.property_id == "software-version"]
+    assert len(versions) == 1
+    assert versions[0].name == "Firmware Version"
 
 
-def test_circuit_current_sensor():
-    """Test circuit current property produces a current sensor."""
-    desc = {
-        "nodes": {
-            "uuid-node": {
-                "name": "Test Circuit",
-                "type": "energy.ebus.device.circuit",
-                "properties": {
-                    "current": {
-                        "name": "Current",
-                        "datatype": "float",
-                        "unit": "A",
-                    },
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc)
+def test_map_enclosure_info_skips_undeclared_properties() -> None:
+    """Mapper only emits specs for properties actually present in the description."""
+    specs = _map_enclosure_info("nt-test-abc12", CAPABILITY_INFO, {"vendor-name": {}}, {})
     assert len(specs) == 1
-    assert specs[0].device_class == SensorDeviceClass.CURRENT
-    assert specs[0].native_unit == UnitOfElectricCurrent.AMPERE
+    assert specs[0].property_id == "vendor-name"
 
 
-def test_circuit_breaker_rating_sensor():
-    """Test circuit breaker-rating produces a diagnostic sensor."""
-    desc = {
-        "nodes": {
-            "uuid-node": {
-                "name": "Test Circuit",
-                "type": "energy.ebus.device.circuit",
-                "properties": {
-                    "breaker-rating": {
-                        "name": "Breaker Rating",
-                        "datatype": "integer",
-                        "unit": "A",
-                    },
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc)
+# ── _map_enclosure_door ───────────────────────────────────────────────────
+
+
+def test_map_enclosure_door_emits_tamper_binary_sensor() -> None:
+    specs = _map_enclosure_door(
+        "nt-test-abc12", CAPABILITY_DOOR, {"state": {"datatype": "enum"}}, {}
+    )
     assert len(specs) == 1
-    assert specs[0].device_class == SensorDeviceClass.CURRENT
-    assert specs[0].native_unit == UnitOfElectricCurrent.AMPERE
-    assert specs[0].entity_category == EntityCategory.DIAGNOSTIC
+    spec = specs[0]
+    assert spec.device_id == "nt-test-abc12"
+    assert spec.capability == CAPABILITY_DOOR
+    assert spec.property_id == "state"
+    assert spec.platform == Platform.BINARY_SENSOR
+    assert spec.device_class == BinarySensorDeviceClass.TAMPER
+    assert spec.on_values == {"OPEN"}
 
 
-def test_core_voltage_sensors():
-    """Test core L1/L2 voltage properties produce voltage sensors."""
-    desc = {
-        "nodes": {
-            "core": {
-                "name": "Core",
-                "type": "energy.ebus.device.distribution-enclosure.core",
-                "properties": {
-                    "l1-voltage": {
-                        "name": "L1 Voltage",
-                        "datatype": "float",
-                        "unit": "V",
-                    },
-                    "l2-voltage": {
-                        "name": "L2 Voltage",
-                        "datatype": "float",
-                        "unit": "V",
-                    },
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc)
+def test_map_enclosure_door_falls_back_to_legacy_property_name() -> None:
+    """Snapshots predating the firmware-side rename still publish door/door."""
+    specs = _map_enclosure_door(
+        "nt-test-abc12", CAPABILITY_DOOR, {"door": {"datatype": "enum"}}, {}
+    )
+    assert len(specs) == 1
+    assert specs[0].property_id == "door"
+
+
+def test_map_enclosure_door_prefers_state_over_legacy() -> None:
+    """If both are somehow published, the spec-current name wins."""
+    specs = _map_enclosure_door(
+        "nt-test-abc12",
+        CAPABILITY_DOOR,
+        {"state": {"datatype": "enum"}, "door": {"datatype": "enum"}},
+        {},
+    )
+    assert len(specs) == 1
+    assert specs[0].property_id == "state"
+
+
+def test_map_enclosure_door_emits_nothing_when_absent() -> None:
+    assert _map_enclosure_door("nt-test-abc12", CAPABILITY_DOOR, {}, {}) == []
+
+
+# ── _map_enclosure_meter ──────────────────────────────────────────────────
+
+
+def test_map_enclosure_meter_emits_l1_l2_voltage() -> None:
+    specs = _map_enclosure_meter(
+        "panel-1",
+        CAPABILITY_METER,
+        {
+            "l1-voltage": {"datatype": "float", "unit": "V"},
+            "l2-voltage": {"datatype": "float", "unit": "V"},
+        },
+        {},
+    )
     assert len(specs) == 2
-    for s in specs:
-        assert s.device_class == SensorDeviceClass.VOLTAGE
+    for spec in specs:
+        assert spec.platform == Platform.SENSOR
+        assert spec.device_class == SensorDeviceClass.VOLTAGE
+        assert spec.state_class == SensorStateClass.MEASUREMENT
+        assert spec.native_unit == UnitOfElectricPotential.VOLT
+
+
+def test_map_enclosure_meter_ignores_internal_mirrors() -> None:
+    """l1-current etc. live on lugs; if a future firmware mirrors them, do not duplicate."""
+    specs = _map_enclosure_meter(
+        "panel-1",
+        CAPABILITY_METER,
+        {"l1-current": {}, "active-power": {}, "imported-energy": {}},
+        {},
+    )
+    assert specs == []
+
+
+# ── _map_enclosure_status ─────────────────────────────────────────────────
+
+
+def test_map_enclosure_status_relay_is_binary_with_closed_as_on() -> None:
+    specs = _map_enclosure_status(
+        "panel-1",
+        CAPABILITY_STATUS,
+        {"relay": {"datatype": "enum", "format": "UNKNOWN,OPEN,CLOSED"}},
+        {},
+    )
+    assert len(specs) == 1
+    assert specs[0].platform == Platform.BINARY_SENSOR
+    assert specs[0].on_values == {"CLOSED"}
+
+
+def test_map_enclosure_status_emits_seven_specs_from_panel_a_shape() -> None:
+    """panel_a publishes all 7 status properties (with legacy vendor-cloud name)."""
+    specs = _map_enclosure_status(
+        "panel-1",
+        CAPABILITY_STATUS,
+        {
+            "relay": {},
+            "ethernet": {},
+            "wifi": {},
+            "wifi-ssid": {},
+            "vendor-cloud": {},
+            "postal-code": {},
+            "time-zone": {},
+        },
+        {},
+    )
+    assert len(specs) == 7
+    cloud = [s for s in specs if s.name == "Cloud Connection"]
+    assert len(cloud) == 1
+    assert cloud[0].property_id == "vendor-cloud"
+
+
+def test_map_enclosure_status_uses_spec_cloud_connection_name_when_published() -> None:
+    specs = _map_enclosure_status(
+        "panel-1",
+        CAPABILITY_STATUS,
+        {"cloud-connection": {}},
+        {},
+    )
+    assert len(specs) == 1
+    assert specs[0].property_id == "cloud-connection"
+    assert specs[0].name == "Cloud Connection"
+
+
+# ── _map_enclosure_pcs ────────────────────────────────────────────────────
+
+
+def test_map_enclosure_pcs_emits_17_specs_for_panel_a() -> None:
+    """panel_a publishes the full PCS surface: 4 fixed + 5 limit families × 3 = 17."""
+    properties = {
+        "enabled": {}, "active": {},
+        "grid-islandable": {}, "breaker-rating": {"unit": "A"},
+        "import-limit": {"unit": "A"},
+        "import-limit-enablement": {},
+        "import-limit-active": {},
+        "feed-import-limit": {"unit": "A"},
+        "feed-import-limit-enablement": {},
+        "feed-import-limit-active": {},
+        "grid-import-limit": {"unit": "A"},
+        "grid-import-limit-enablement": {},
+        "grid-import-limit-active": {},
+        "off-grid-import-limit": {"unit": "A"},
+        "off-grid-import-limit-enablement": {},
+        "off-grid-import-limit-active": {},
+        "requested-import-limit": {"unit": "A"},
+        "requested-import-limit-enablement": {},
+        "requested-import-limit-active": {},
+    }
+    specs = _map_enclosure_pcs("panel-1", CAPABILITY_PCS, properties, {})
+    assert len(specs) == 19  # 4 + (5 × 3) = 19
+
+    limit_sensors = [s for s in specs if s.device_class == SensorDeviceClass.CURRENT and s.property_id != "breaker-rating"]
+    assert len(limit_sensors) == 5
+    for s in limit_sensors:
+        assert s.native_unit == UnitOfElectricCurrent.AMPERE
         assert s.state_class == SensorStateClass.MEASUREMENT
 
 
-def test_humanize_abbreviations():
-    """Test _humanize handles known abbreviations correctly."""
-    from custom_components.span_ebus.node_mappers import _humanize
-
-    assert _humanize("pv-power") == "PV Power"
-    assert _humanize("ev-charger") == "EV Charger"
-    assert _humanize("soc") == "SOC"
-    assert _humanize("soe") == "SOE"
-    assert _humanize("grid-power") == "Grid Power"
-
-
-def test_core_entities_have_no_subdevice():
-    """Test core entities have empty node_type and device_name."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    core_specs = [s for s in specs if s.node_id == "core"]
-    assert len(core_specs) > 0
-    for s in core_specs:
-        assert s.node_type == ""
-        assert s.device_name == ""
-
-
-def test_circuit_specs_have_subdevice_fields():
-    """Test circuit entity specs have node_type and device_name set."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    circuit_specs = [s for s in specs if s.node_id == MOCK_CIRCUIT_UUID]
-    assert len(circuit_specs) > 0
-    for s in circuit_specs:
-        assert s.node_type == "energy.ebus.device.circuit"
-        assert s.device_name != ""
-
-
-def test_bess_specs_have_subdevice_fields():
-    """Test BESS entity specs have node_type and friendly device_name."""
-    desc = {
-        "nodes": {
-            "bess": {
-                "name": "Distribution Enclosure Commissioned Backup System",
-                "type": "energy.ebus.device.bess",
-                "properties": {
-                    "soc": {"name": "SOC", "datatype": "float", "unit": "%"},
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc)
-    assert len(specs) == 1
-    assert specs[0].node_type == "energy.ebus.device.bess"
-    assert specs[0].device_name == "Battery Storage"
-    assert specs[0].name == "State of Charge"
-
-
-def test_pv_specs_have_subdevice_fields():
-    """Test PV entity specs have node_type and friendly device_name."""
-    desc = {
-        "nodes": {
-            "pv": {
-                "name": "Distribution Enclosure Commissioned PV System",
-                "type": "energy.ebus.device.pv",
-                "properties": {
-                    "power-w": {"name": "Power", "datatype": "float", "unit": "W"},
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc)
-    assert len(specs) == 1
-    assert specs[0].node_type == "energy.ebus.device.pv"
-    assert specs[0].device_name == "Solar PV"
-    assert specs[0].name == "Power W"
-
-
-def test_power_flow_entities_are_subdevice():
-    """Test power-flow entities create a Site Metering sub-device."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    pf_specs = [s for s in specs if s.node_id == "power-flows"]
-    assert len(pf_specs) > 0
-    for s in pf_specs:
-        assert s.node_type == "energy.ebus.device.power-flows"
-        assert s.device_name == "Site Metering"
-
-
-def test_bess_device_name_with_serial_suffix():
-    """Test BESS device_name includes short serial suffix when panel is provided."""
-    from unittest.mock import MagicMock
-
-    panel = MagicMock()
-    panel.serial_number = "nt-2024-g5h6j"
-    panel.get_property_value = MagicMock(return_value=None)
-
-    desc = {
-        "nodes": {
-            "bess": {
-                "name": "Distribution Enclosure Commissioned Backup System",
-                "type": "energy.ebus.device.bess",
-                "properties": {
-                    "soc": {"name": "SOC", "datatype": "float", "unit": "%"},
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc, panel=panel)
-    assert len(specs) == 1
-    assert specs[0].device_name == "g5h6j Battery Storage"
-
-
-def test_pv_device_name_with_serial_suffix():
-    """Test PV device_name includes short serial suffix when panel is provided."""
-    from unittest.mock import MagicMock
-
-    panel = MagicMock()
-    panel.serial_number = "nt-2024-a1b2c"
-    panel.get_property_value = MagicMock(return_value=None)
-
-    desc = {
-        "nodes": {
-            "pv": {
-                "name": "Distribution Enclosure Commissioned PV System",
-                "type": "energy.ebus.device.pv",
-                "properties": {
-                    "power-w": {"name": "Power", "datatype": "float", "unit": "W"},
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc, panel=panel)
-    assert len(specs) == 1
-    assert specs[0].device_name == "a1b2c Solar PV"
-
-
-def test_power_flows_device_name_with_serial_suffix():
-    """Test power-flows device_name includes short serial suffix when panel is provided."""
-    from unittest.mock import MagicMock
-
-    panel = MagicMock()
-    panel.serial_number = "nt-2024-g5h6j"
-    panel.get_property_value = MagicMock(return_value=None)
-
-    specs = entities_from_description(MOCK_DESCRIPTION, panel=panel)
-    pf_specs = [s for s in specs if s.node_id == "power-flows"]
-    assert len(pf_specs) > 0
-    for s in pf_specs:
-        assert s.device_name == "g5h6j Site Metering"
-
-
-def test_subdevice_info_via_device():
-    """Test subdevice_info creates DeviceInfo with correct via_device."""
-    from custom_components.span_ebus.const import DOMAIN
-    from custom_components.span_ebus.util import subdevice_info
-
-    info = subdevice_info(
-        serial="nt-0000-abc12",
-        node_id="uuid-123",
-        node_type="energy.ebus.device.circuit",
-        name="Kitchen",
+def test_map_enclosure_pcs_breaker_rating_is_diagnostic_current() -> None:
+    specs = _map_enclosure_pcs(
+        "panel-1", CAPABILITY_PCS, {"breaker-rating": {"unit": "A"}}, {}
     )
-    assert info["identifiers"] == {(DOMAIN, "nt-0000-abc12_uuid-123")}
-    assert info["name"] == "Kitchen"
-    assert info["manufacturer"] == "SPAN"
-    assert info["model"] == "Circuit"
-    assert info["via_device"] == (DOMAIN, "nt-0000-abc12")
+    assert len(specs) == 1
+    assert specs[0].device_class == SensorDeviceClass.CURRENT
+    assert specs[0].entity_category == EntityCategory.DIAGNOSTIC
+    assert specs[0].state_class is None
 
 
-def test_subdevice_info_bess_model():
-    """Test subdevice_info uses correct model label for BESS."""
-    from custom_components.span_ebus.util import subdevice_info
+# ── _map_enclosure_power_flows ────────────────────────────────────────────
 
-    info = subdevice_info(
-        serial="nt-0000-abc12",
-        node_id="bess-1",
-        node_type="energy.ebus.device.bess",
-        name="Powerwall",
+
+def test_map_enclosure_power_flows_emits_four_directional_sensors() -> None:
+    specs = _map_enclosure_power_flows(
+        "panel-1",
+        CAPABILITY_POWER_FLOWS,
+        {kind: {"unit": "W"} for kind in ("pv", "battery", "grid", "site")},
+        {},
     )
-    assert info["model"] == "Battery Storage"
+    assert len(specs) == 4
+    for spec in specs:
+        assert spec.platform == Platform.SENSOR
+        assert spec.device_class == SensorDeviceClass.POWER
+        assert spec.state_class == SensorStateClass.MEASUREMENT
+        assert spec.native_unit == UnitOfPower.WATT
 
 
-def test_subdevice_info_pv_model():
-    """Test subdevice_info uses correct model label for PV."""
-    from custom_components.span_ebus.util import subdevice_info
-
-    info = subdevice_info(
-        serial="nt-0000-abc12",
-        node_id="pv-1",
-        node_type="energy.ebus.device.pv",
-        name="Solar",
+def test_map_enclosure_power_flows_pv_name_capitalization() -> None:
+    """The pv flow's user-facing label should read 'PV Power', not 'Pv Power'."""
+    specs = _map_enclosure_power_flows(
+        "panel-1", CAPABILITY_POWER_FLOWS, {"pv": {"unit": "W"}}, {}
     )
-    assert info["model"] == "Solar PV"
+    assert specs[0].name == "PV Power"
 
 
-def test_subdevice_info_evse_model():
-    """Test subdevice_info uses correct model label for EVSE."""
-    from custom_components.span_ebus.util import subdevice_info
+# ── _map_enclosure_shed_forecast ──────────────────────────────────────────
 
-    info = subdevice_info(
-        serial="nt-0000-abc12",
-        node_id="evse-1",
-        node_type="energy.ebus.device.evse",
-        name="Charger",
+
+def test_map_enclosure_shed_forecast_emits_four_durations_and_confidence() -> None:
+    specs = _map_enclosure_shed_forecast(
+        "panel-1",
+        CAPABILITY_SHED_FORECAST,
+        {
+            "total-time-remaining": {"unit": "min"},
+            "time-to-priority-shed": {"unit": "min"},
+            "full-charge-total-time-remaining": {"unit": "min"},
+            "full-charge-time-to-priority-shed": {"unit": "min"},
+            "confidence": {"datatype": "enum"},
+        },
+        {},
     )
-    assert info["model"] == "EV Charger"
-
-
-def test_dominant_power_source_is_select():
-    """Test dominant-power-source produces a settable Select entity."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    dps = [s for s in specs if s.property_id == "dominant-power-source"]
-    assert len(dps) == 1
-    assert dps[0].platform == Platform.SELECT
-    assert dps[0].settable is True
-    assert "GRID" in dps[0].options
-    assert "BATTERY" in dps[0].options
-    assert "PV" in dps[0].options
-
-
-def test_core_door_has_on_values():
-    """Test door binary sensor has on_values set for enum handling."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    door = [s for s in specs if s.property_id == "door"]
-    assert len(door) == 1
-    assert door[0].on_values == {"OPEN"}
-
-
-def test_core_relay_has_on_values():
-    """Test main relay binary sensor has on_values for CLOSED=on."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    relay = [s for s in specs if s.node_id == "core" and s.property_id == "relay"]
-    assert len(relay) == 1
-    assert relay[0].on_values == {"CLOSED"}
-
-
-def test_circuit_space_diagnostic():
-    """Test circuit space property produces a diagnostic sensor."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    space = [
-        s for s in specs
-        if s.node_id == MOCK_CIRCUIT_UUID and s.property_id == "space"
-    ]
-    assert len(space) == 1
-    assert space[0].platform == Platform.SENSOR
-    assert space[0].entity_category == EntityCategory.DIAGNOSTIC
-
-
-def test_circuit_dipole_binary_sensor():
-    """Test circuit dipole property produces a diagnostic binary sensor."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    dipole = [
-        s for s in specs
-        if s.node_id == MOCK_CIRCUIT_UUID and s.property_id == "dipole"
-    ]
-    assert len(dipole) == 1
-    assert dipole[0].platform == Platform.BINARY_SENSOR
-    assert dipole[0].entity_category == EntityCategory.DIAGNOSTIC
-
-
-def test_circuit_pcs_priority_sensor():
-    """Test circuit pcs-priority produces a sensor (integer, not select)."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    pcs = [
-        s for s in specs
-        if s.node_id == MOCK_CIRCUIT_UUID and s.property_id == "pcs-priority"
-    ]
-    assert len(pcs) == 1
-    assert pcs[0].platform == Platform.SENSOR
-
-
-def test_bess_metadata_properties():
-    """Test BESS node maps all metadata properties."""
-    desc = {
-        "nodes": {
-            "bess": {
-                "name": "Battery",
-                "type": "energy.ebus.device.bess",
-                "properties": {
-                    "soc": {"name": "SOC", "datatype": "float", "unit": "%"},
-                    "vendor-name": {"name": "Vendor", "datatype": "string"},
-                    "serial-number": {"name": "Serial", "datatype": "string"},
-                    "nameplate-capacity": {
-                        "name": "Capacity",
-                        "datatype": "float",
-                        "unit": "kWh",
-                    },
-                    "feed": {"name": "Feed", "datatype": "enum", "format": "L1,L2"},
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc)
     assert len(specs) == 5
-    vendor = [s for s in specs if s.property_id == "vendor-name"][0]
-    assert vendor.entity_category == EntityCategory.DIAGNOSTIC
-    cap = [s for s in specs if s.property_id == "nameplate-capacity"][0]
+    durations = [s for s in specs if s.device_class == SensorDeviceClass.DURATION]
+    assert len(durations) == 4
+    for d in durations:
+        assert d.native_unit == UnitOfTime.MINUTES
+    confidence = [s for s in specs if s.property_id == "confidence"]
+    assert len(confidence) == 1
+    assert confidence[0].entity_category == EntityCategory.DIAGNOSTIC
+
+
+# ── _map_enclosure_shed ───────────────────────────────────────────────────
+
+
+def test_map_enclosure_shed_override_is_settable_switch() -> None:
+    specs = _map_enclosure_shed(
+        "panel-1", CAPABILITY_SHED, {"override": {"datatype": "boolean", "settable": True}}, {}
+    )
+    assert len(specs) == 1
+    assert specs[0].platform == Platform.SWITCH
+    assert specs[0].settable is True
+
+
+def test_map_enclosure_shed_soc_threshold_is_battery_percentage() -> None:
+    specs = _map_enclosure_shed(
+        "panel-1",
+        CAPABILITY_SHED,
+        {"soc-threshold": {"datatype": "integer", "unit": "%"}},
+        {},
+    )
+    assert len(specs) == 1
+    assert specs[0].device_class == SensorDeviceClass.BATTERY
+    assert specs[0].native_unit == PERCENTAGE
+    assert specs[0].entity_category == EntityCategory.DIAGNOSTIC
+
+
+# ── _map_lugs_info ────────────────────────────────────────────────────────
+
+
+def test_map_lugs_info_emits_direction_sensor() -> None:
+    specs = _map_lugs_info(
+        "panel-1-lugs-up",
+        CAPABILITY_INFO,
+        {"direction": {"datatype": "enum", "format": "UPSTREAM,DOWNSTREAM"}},
+        {},
+    )
+    assert len(specs) == 1
+    assert specs[0].platform == Platform.SENSOR
+    assert specs[0].entity_category == EntityCategory.DIAGNOSTIC
+    assert specs[0].name == "Direction"
+
+
+def test_map_lugs_info_empty_when_no_direction() -> None:
+    assert _map_lugs_info("panel-1-lugs-up", CAPABILITY_INFO, {}, {}) == []
+
+
+# ── _map_lugs_meter ───────────────────────────────────────────────────────
+
+
+_LUGS_METER_PROPERTIES = {
+    "l1-current": {"unit": "A"},
+    "l2-current": {"unit": "A"},
+    "active-power": {"unit": "W"},
+    "imported-energy": {"unit": "Wh"},
+    "exported-energy": {"unit": "Wh"},
+}
+
+
+def test_map_lugs_meter_upstream_uses_grid_friendly_energy_names() -> None:
+    device_data = {"properties": {"info/direction": "upstream"}}
+    specs = _map_lugs_meter(
+        "panel-1-lugs-up", CAPABILITY_METER, _LUGS_METER_PROPERTIES, device_data
+    )
+    assert len(specs) == 5
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["imported-energy"].name == "Energy"
+    assert by_id["exported-energy"].name == "Energy Returned"
+    assert by_id["imported-energy"].device_class == SensorDeviceClass.ENERGY
+    assert by_id["imported-energy"].state_class == SensorStateClass.TOTAL_INCREASING
+    assert by_id["imported-energy"].native_unit == UnitOfEnergy.WATT_HOUR
+    assert by_id["active-power"].device_class == SensorDeviceClass.POWER
+    assert by_id["active-power"].native_unit == UnitOfPower.WATT
+    assert by_id["l1-current"].native_unit == UnitOfElectricCurrent.AMPERE
+
+
+def test_map_lugs_meter_downstream_uses_literal_energy_names() -> None:
+    """Downstream-direction energy entities use unambiguous literal names.
+
+    SPAN does not populate downstream lug values today; the literal names will
+    read correctly when a future firmware enables inter-panel feedthrough.
+    """
+    device_data = {"properties": {"info/direction": "downstream"}}
+    specs = _map_lugs_meter(
+        "panel-1-lugs-dn", CAPABILITY_METER, _LUGS_METER_PROPERTIES, device_data
+    )
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["imported-energy"].name == "Imported Energy"
+    assert by_id["exported-energy"].name == "Exported Energy"
+
+
+def test_map_lugs_meter_unknown_direction_falls_back_to_literal() -> None:
+    """Unknown direction still emits sensors with literal names.
+
+    Tests the descriptor in isolation (when the publisher hasn't yet sent
+    info/direction at the time entities_from_tree was called).
+    """
+    specs = _map_lugs_meter("panel-1-lugs-up", CAPABILITY_METER, _LUGS_METER_PROPERTIES, {})
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["imported-energy"].name == "Imported Energy"
+    assert by_id["exported-energy"].name == "Exported Energy"
+
+
+# ── _map_lugs_connection ──────────────────────────────────────────────────
+
+
+_LUGS_CONNECTION_FULL = {
+    "fed-by-device-id": {"datatype": "string"},
+    "fed-by-device-type": {"datatype": "string"},
+    "fed-by-device-status": {"datatype": "enum", "format": "OK,LOST,DEGRADED"},
+    "feeds-device-id": {"datatype": "string"},
+    "feeds-device-type": {"datatype": "string"},
+    "feeds-device-status": {"datatype": "enum", "format": "OK,LOST,DEGRADED"},
+    "count": {"datatype": "integer"},
+}
+
+
+def test_map_lugs_connection_upstream_emits_fed_by_triplet_plus_count() -> None:
+    device_data = {"properties": {"info/direction": "upstream"}}
+    specs = _map_lugs_connection(
+        "panel-1-lugs-up", CAPABILITY_CONNECTION, _LUGS_CONNECTION_FULL, device_data
+    )
+    prop_ids = {s.property_id for s in specs}
+    assert prop_ids == {"fed-by-device-id", "fed-by-device-type", "fed-by-device-status", "count"}
+    status = next(s for s in specs if s.property_id == "fed-by-device-status")
+    assert status.platform == Platform.BINARY_SENSOR
+    assert status.device_class == BinarySensorDeviceClass.PROBLEM
+    assert status.on_values == {"LOST", "DEGRADED"}
+
+
+def test_map_lugs_connection_downstream_emits_feeds_triplet_plus_count() -> None:
+    device_data = {"properties": {"info/direction": "downstream"}}
+    specs = _map_lugs_connection(
+        "panel-1-lugs-dn", CAPABILITY_CONNECTION, _LUGS_CONNECTION_FULL, device_data
+    )
+    prop_ids = {s.property_id for s in specs}
+    assert prop_ids == {"feeds-device-id", "feeds-device-type", "feeds-device-status", "count"}
+
+
+def test_map_lugs_connection_unknown_direction_emits_nothing() -> None:
+    """Unknown direction emits nothing to avoid permanently-empty entities.
+
+    Without direction we cannot say which half (fed-by-* vs feeds-*) is real.
+    """
+    assert _map_lugs_connection("panel-1-lugs-up", CAPABILITY_CONNECTION, _LUGS_CONNECTION_FULL, {}) == []
+
+
+# ── _map_bess_info ────────────────────────────────────────────────────────
+
+
+_BESS_INFO_PROPERTIES_LEGACY_FIRMWARE = {
+    "vendor-name": {"datatype": "string"},
+    "product-name": {"datatype": "string"},
+    "model": {"datatype": "string"},
+    "serial-number": {"datatype": "string"},
+    "software-version": {"datatype": "string"},
+    "nameplate-capacity": {"datatype": "float", "unit": "kWh"},
+}
+
+
+def test_map_bess_info_emits_six_diagnostic_specs_for_legacy_publisher() -> None:
+    """Snapshot fixtures still ship software-version (pre-rename); expect 6 specs."""
+    specs = _map_bess_info("bess-1", CAPABILITY_INFO, _BESS_INFO_PROPERTIES_LEGACY_FIRMWARE, {})
+    assert len(specs) == 6
+    by_id = {s.property_id: s for s in specs}
+    for prop_id in _BESS_INFO_PROPERTIES_LEGACY_FIRMWARE:
+        assert prop_id in by_id
+        assert by_id[prop_id].entity_category == EntityCategory.DIAGNOSTIC
+    # software-version surfaces under the spec-current "Firmware Version" label.
+    assert by_id["software-version"].name == "Firmware Version"
+    cap = by_id["nameplate-capacity"]
     assert cap.device_class == SensorDeviceClass.ENERGY_STORAGE
     assert cap.native_unit == UnitOfEnergy.KILO_WATT_HOUR
+    assert cap.state_class is None
 
 
-def test_bess_nameplate_capacity_wh_unit():
-    """Test BESS nameplate-capacity respects Wh unit from $description."""
-    desc = {
-        "nodes": {
-            "bess": {
-                "name": "Battery",
-                "type": "energy.ebus.device.bess",
-                "properties": {
-                    "nameplate-capacity": {
-                        "name": "Capacity",
-                        "datatype": "float",
-                        "unit": "Wh",
-                    },
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc)
-    cap = specs[0]
-    assert cap.native_unit == UnitOfEnergy.WATT_HOUR
+def test_map_bess_info_picks_up_firmware_version_when_publisher_renames() -> None:
+    specs = _map_bess_info(
+        "bess-1",
+        CAPABILITY_INFO,
+        {"vendor-name": {}, "firmware-version": {}},
+        {},
+    )
+    by_id = {s.property_id: s for s in specs}
+    assert "firmware-version" in by_id
+    assert by_id["firmware-version"].name == "Firmware Version"
 
 
-def test_pv_metadata_properties():
-    """Test PV node maps metadata properties."""
-    desc = {
-        "nodes": {
-            "pv": {
-                "name": "Solar",
-                "type": "energy.ebus.device.pv",
-                "properties": {
-                    "vendor-name": {"name": "Vendor", "datatype": "string"},
-                    "nameplate-capacity": {
-                        "name": "Capacity",
-                        "datatype": "float",
-                        "unit": "kW",
-                    },
-                    "feed": {"name": "Feed", "datatype": "enum", "format": "L1,L2"},
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc)
-    assert len(specs) == 3
-    cap = [s for s in specs if s.property_id == "nameplate-capacity"][0]
+# ── _map_bess_soc ─────────────────────────────────────────────────────────
+
+
+def test_map_bess_soc_emits_battery_and_energy_storage_measurements() -> None:
+    specs = _map_bess_soc(
+        "bess-1",
+        CAPABILITY_SOC,
+        {
+            "soc": {"datatype": "float", "unit": "%"},
+            "soe": {"datatype": "float", "unit": "kWh"},
+        },
+        {},
+    )
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["soc"].device_class == SensorDeviceClass.BATTERY
+    assert by_id["soc"].native_unit == PERCENTAGE
+    assert by_id["soc"].state_class == SensorStateClass.MEASUREMENT
+    assert by_id["soe"].device_class == SensorDeviceClass.ENERGY_STORAGE
+    assert by_id["soe"].native_unit == UnitOfEnergy.KILO_WATT_HOUR
+    assert by_id["soe"].state_class == SensorStateClass.MEASUREMENT
+
+
+# ── _map_mid_info ─────────────────────────────────────────────────────────
+
+
+def test_map_mid_info_emits_six_diagnostic_specs() -> None:
+    """MID snapshot already uses the spec firmware-version name."""
+    specs = _map_mid_info(
+        "bess-1-mid",
+        CAPABILITY_INFO,
+        {
+            "vendor-name": {},
+            "product-name": {},
+            "model": {},
+            "serial-number": {},
+            "hardware-version": {},
+            "firmware-version": {},
+        },
+        {},
+    )
+    assert len(specs) == 6
+    for s in specs:
+        assert s.entity_category == EntityCategory.DIAGNOSTIC
+
+
+# ── _map_mid_grid ─────────────────────────────────────────────────────────
+
+
+def test_map_mid_grid_islanding_and_grid_state_keep_full_enum_value() -> None:
+    """All three properties emit text sensors.
+
+    DEGRADED (vs DOWN/UNKNOWN) doesn't collapse into a single 'not ok' bit,
+    the way a PROBLEM binary_sensor would.
+    """
+    specs = _map_mid_grid(
+        "bess-1-mid",
+        CAPABILITY_GRID,
+        {
+            "islanding-state": {"datatype": "enum", "format": "ON_GRID,OFF_GRID,UNKNOWN"},
+            "grid-state": {"datatype": "enum", "format": "UP,DOWN,DEGRADED,UNKNOWN"},
+            "grid-forming-entity": {"datatype": "string"},
+        },
+        {},
+    )
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["islanding-state"].platform == Platform.SENSOR
+    assert by_id["grid-state"].platform == Platform.SENSOR
+    assert by_id["grid-forming-entity"].entity_category == EntityCategory.DIAGNOSTIC
+    # islanding-state and grid-state are operational, not diagnostic.
+    assert by_id["islanding-state"].entity_category is None
+    assert by_id["grid-state"].entity_category is None
+
+
+# ── _map_pv_info ──────────────────────────────────────────────────────────
+
+
+def test_map_pv_info_emits_five_specs_with_watts_for_nameplate() -> None:
+    """Tree-v1 publishes nameplate-capacity in watts.
+
+    The legacy kW-but-actually-W firmware bug is fixed in the new model.
+    """
+    specs = _map_pv_info(
+        "pv-1",
+        CAPABILITY_INFO,
+        {
+            "vendor-name": {},
+            "product-name": {},
+            "serial-number": {},
+            "software-version": {},
+            "nameplate-capacity": {"unit": "W"},
+        },
+        {},
+    )
+    assert len(specs) == 5
+    by_id = {s.property_id: s for s in specs}
+    cap = by_id["nameplate-capacity"]
     assert cap.device_class == SensorDeviceClass.POWER
-    assert cap.native_unit == UnitOfPower.KILO_WATT
-
-
-def test_pv_nameplate_capacity_watts_unit():
-    """Test PV nameplate-capacity respects W unit from $description."""
-    desc = {
-        "nodes": {
-            "pv": {
-                "name": "Solar",
-                "type": "energy.ebus.device.pv",
-                "properties": {
-                    "nameplate-capacity": {
-                        "name": "Capacity",
-                        "datatype": "float",
-                        "unit": "W",
-                    },
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc)
-    cap = specs[0]
     assert cap.native_unit == UnitOfPower.WATT
 
 
-def test_evse_comprehensive():
-    """Test EVSE node maps status, lock-state, advertised-current, metadata."""
-    desc = {
-        "nodes": {
-            "evse": {
-                "name": "Charger",
-                "type": "energy.ebus.device.evse",
-                "properties": {
-                    "status": {"name": "Status", "datatype": "enum"},
-                    "lock-state": {"name": "Lock State", "datatype": "enum"},
-                    "advertised-current": {
-                        "name": "Current",
-                        "datatype": "float",
-                        "unit": "A",
-                    },
-                    "vendor-name": {"name": "Vendor", "datatype": "string"},
-                    "software-version": {"name": "FW", "datatype": "string"},
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc)
+def test_map_pv_info_no_model_or_hardware_version_in_v1() -> None:
+    """PV info has no model / hardware-version rows on the wire.
+
+    If a future firmware adds them the mapper just keeps emitting what's
+    declared elsewhere.
+    """
+    specs = _map_pv_info(
+        "pv-1",
+        CAPABILITY_INFO,
+        {"model": {}, "hardware-version": {}},
+        {},
+    )
+    # Mapper has no row for these keys, so they're silently skipped.
+    assert specs == []
+
+
+# ── EVSE mappers (no fixture coverage — neither snapshot has a Drive) ───
+
+
+def test_map_evse_info_emits_five_diagnostic_specs_for_legacy_publisher() -> None:
+    """EVSE info has 5 fields including the EVSE-unique part-number."""
+    specs = _map_evse_info(
+        "evse-1",
+        CAPABILITY_INFO,
+        {
+            "vendor-name": {},
+            "product-name": {},
+            "part-number": {},
+            "serial-number": {},
+            "software-version": {},
+        },
+        {},
+    )
     assert len(specs) == 5
-    status = [s for s in specs if s.property_id == "status"][0]
-    assert status.icon == "mdi:ev-station"
-    lock = [s for s in specs if s.property_id == "lock-state"][0]
-    assert lock.icon == "mdi:lock"
-    current = [s for s in specs if s.property_id == "advertised-current"][0]
-    assert current.device_class == SensorDeviceClass.CURRENT
-    assert current.native_unit == UnitOfElectricCurrent.AMPERE
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["part-number"].name == "Part Number"
+    assert by_id["software-version"].name == "Firmware Version"
+    for s in specs:
+        assert s.entity_category == EntityCategory.DIAGNOSTIC
 
 
-def test_pcs_node():
-    """Test PCS node maps boolean, current, and enum properties."""
-    desc = {
-        "nodes": {
-            "pcs": {
-                "name": "Power Control",
-                "type": "energy.ebus.device.pcs",
-                "properties": {
-                    "enabled": {"name": "Enabled", "datatype": "boolean"},
-                    "active": {"name": "Active", "datatype": "boolean"},
-                    "import-limit": {
-                        "name": "Import Limit",
-                        "datatype": "float",
-                        "unit": "A",
-                    },
-                    "grid-import-limit-enablement": {
-                        "name": "Grid Import Limit Enablement",
-                        "datatype": "enum",
-                        "format": "ENABLED,DISABLED",
-                    },
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc)
-    assert len(specs) == 4
-    booleans = [s for s in specs if s.platform == Platform.BINARY_SENSOR]
-    assert len(booleans) == 2
-    current = [s for s in specs if s.property_id == "import-limit"][0]
-    assert current.device_class == SensorDeviceClass.CURRENT
-    assert current.native_unit == UnitOfElectricCurrent.AMPERE
-    enum_sensor = [s for s in specs if s.property_id == "grid-import-limit-enablement"][0]
-    assert enum_sensor.platform == Platform.SENSOR
-    assert enum_sensor.entity_category == EntityCategory.DIAGNOSTIC
+def test_map_evse_info_no_model_row() -> None:
+    """EVSE info has no model row on the wire — the mapper silently skips it."""
+    specs = _map_evse_info("evse-1", CAPABILITY_INFO, {"model": {}}, {})
+    assert specs == []
 
 
-def test_lug_feed_diagnostic():
-    """Test lug feed property produces a diagnostic sensor."""
-    desc = {
-        "nodes": {
-            "upstream-lug": {
-                "name": "Upstream",
-                "type": "energy.ebus.device.lugs.upstream",
-                "properties": {
-                    "feed": {"name": "Feed", "datatype": "string"},
-                    "active-power": {
-                        "name": "Power",
-                        "datatype": "float",
-                        "unit": "W",
-                    },
-                },
-            }
-        }
-    }
-    specs = entities_from_description(desc)
+def test_map_evse_status_emits_text_sensor_with_ev_icon() -> None:
+    specs = _map_evse_status(
+        "evse-1",
+        CAPABILITY_STATUS,
+        {"operational-state": {"datatype": "enum"}},
+        {},
+    )
+    assert len(specs) == 1
+    spec = specs[0]
+    assert spec.platform == Platform.SENSOR
+    assert spec.icon == "mdi:ev-station"
+    assert spec.name == "Status"
+
+
+def test_map_evse_switch_emits_text_lock_state_sensor() -> None:
+    """Lock state is read-only per spec; surface as text sensor not a switch."""
+    specs = _map_evse_switch(
+        "evse-1",
+        CAPABILITY_SWITCH,
+        {"lock-state": {"datatype": "enum"}},
+        {},
+    )
+    assert len(specs) == 1
+    spec = specs[0]
+    assert spec.platform == Platform.SENSOR
+    assert spec.settable is False
+    assert spec.icon == "mdi:lock"
+
+
+def test_map_evse_meter_emits_current_measurement() -> None:
+    specs = _map_evse_meter(
+        "evse-1",
+        CAPABILITY_METER,
+        {"advertised-current": {"datatype": "float", "unit": "A"}},
+        {},
+    )
+    assert len(specs) == 1
+    spec = specs[0]
+    assert spec.device_class == SensorDeviceClass.CURRENT
+    assert spec.state_class == SensorStateClass.MEASUREMENT
+    assert spec.native_unit == UnitOfElectricCurrent.AMPERE
+
+
+def test_map_evse_config_emits_two_current_sensors() -> None:
+    """user-max-charge-current and max-charge-current both surface as CURRENT diagnostics.
+
+    Phase 3 will upgrade user-max-charge-current to Platform.NUMBER for
+    settability; for now it's a read-only sensor.
+    """
+    specs = _map_evse_config(
+        "evse-1",
+        CAPABILITY_CONFIG,
+        {
+            "user-max-charge-current": {"unit": "A", "settable": True},
+            "max-charge-current": {"unit": "A"},
+        },
+        {},
+    )
     assert len(specs) == 2
-    feed = [s for s in specs if s.property_id == "feed"][0]
-    assert feed.entity_category == EntityCategory.DIAGNOSTIC
-    assert "Upstream" in feed.name
+    by_id = {s.property_id: s for s in specs}
+    for prop_id in ("user-max-charge-current", "max-charge-current"):
+        s = by_id[prop_id]
+        assert s.device_class == SensorDeviceClass.CURRENT
+        assert s.native_unit == UnitOfElectricCurrent.AMPERE
+        assert s.entity_category == EntityCategory.DIAGNOSTIC
 
 
-def test_circuit_energy_naming():
-    """Test circuit exported-energy is 'Energy' (consumption), imported is 'Energy Returned'."""
-    specs = entities_from_description(MOCK_DESCRIPTION)
-    imported = [
+# ── _map_circuit_info ─────────────────────────────────────────────────────
+
+
+def test_map_circuit_info_maps_legacy_space_under_tab_number_name() -> None:
+    """Snapshot fixtures still publish ``space`` (pre-rename); surface as Tab Number."""
+    specs = _map_circuit_info(
+        "circ-1",
+        CAPABILITY_INFO,
+        {
+            "name": {"datatype": "string"},
+            "breaker-rating": {"datatype": "integer", "unit": "A"},
+            "space": {"datatype": "integer"},
+            "dipole": {"datatype": "boolean"},
+        },
+        {},
+    )
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["space"].name == "Tab Number"
+    assert by_id["breaker-rating"].device_class == SensorDeviceClass.CURRENT
+    assert by_id["dipole"].platform == Platform.BINARY_SENSOR
+    assert by_id["name"].entity_category == EntityCategory.DIAGNOSTIC
+
+
+def test_map_circuit_info_picks_up_tab_number_after_rename() -> None:
+    specs = _map_circuit_info(
+        "circ-1", CAPABILITY_INFO, {"tab-number": {"datatype": "integer"}}, {}
+    )
+    assert len(specs) == 1
+    assert specs[0].name == "Tab Number"
+
+
+# ── _map_circuit_meter ────────────────────────────────────────────────────
+
+
+_CIRCUIT_METER_PROPERTIES = {
+    "current": {"unit": "A"},
+    "active-power": {"unit": "W"},
+    "imported-energy": {"unit": "Wh"},
+    "exported-energy": {"unit": "Wh"},
+}
+
+
+def test_map_circuit_meter_emits_four_specs() -> None:
+    specs = _map_circuit_meter("circ-1", CAPABILITY_METER, _CIRCUIT_METER_PROPERTIES, {})
+    assert len(specs) == 4
+    by_id = {s.property_id: s for s in specs}
+    # Power is W with sign-flip to match HA's positive-consumption convention.
+    assert by_id["active-power"].native_unit == UnitOfPower.WATT
+    assert by_id["active-power"].negate is True
+    # SPAN's panel-perspective: exported-energy = consumption ("Energy", dominant counter);
+    # imported-energy = backfeed ("Energy Returned", typically ~0 on a load circuit).
+    assert by_id["exported-energy"].name == "Energy"
+    assert by_id["imported-energy"].name == "Energy Returned"
+    # Both energies are TOTAL_INCREASING (monotonicity workaround per AN-001 lives
+    # at a layer below the mapper).
+    for prop_id in ("imported-energy", "exported-energy"):
+        s = by_id[prop_id]
+        assert s.device_class == SensorDeviceClass.ENERGY
+        assert s.state_class == SensorStateClass.TOTAL_INCREASING
+        assert s.native_unit == UnitOfEnergy.WATT_HOUR
+
+
+# ── _map_circuit_switch ───────────────────────────────────────────────────
+
+
+def test_map_circuit_switch_relay_is_settable_when_relay_controllable_true() -> None:
+    specs = _map_circuit_switch(
+        "circ-1",
+        CAPABILITY_SWITCH,
+        {"relay": {"datatype": "enum", "format": "UNKNOWN,OPEN,CLOSED", "settable": True}},
+        {"properties": {"priority/relay-controllable": True}},
+    )
+    relay = next(s for s in specs if s.property_id == "relay")
+    assert relay.platform == Platform.SWITCH
+    assert relay.settable is True
+
+
+def test_map_circuit_switch_relay_locked_when_relay_controllable_false() -> None:
+    """A non-controllable circuit surfaces relay as a non-settable switch.
+
+    Always-on / always-off circuits have relay-controllable=False; the spec
+    gates $settable accordingly and the entity should match.
+    """
+    specs = _map_circuit_switch(
+        "circ-1",
+        CAPABILITY_SWITCH,
+        {"relay": {"datatype": "enum", "format": "UNKNOWN,OPEN,CLOSED"}},
+        {"properties": {"priority/relay-controllable": False}},
+    )
+    relay = next(s for s in specs if s.property_id == "relay")
+    assert relay.settable is False
+
+
+def test_map_circuit_switch_relay_defaults_settable_when_unknown() -> None:
+    """Unknown relay-controllable defaults to settable=True.
+
+    The publisher will refuse out-of-condition writes anyway, so this is safe.
+    """
+    specs = _map_circuit_switch(
+        "circ-1",
+        CAPABILITY_SWITCH,
+        {"relay": {"datatype": "enum", "format": "UNKNOWN,OPEN,CLOSED"}},
+        {},
+    )
+    relay = next(s for s in specs if s.property_id == "relay")
+    assert relay.settable is True
+
+
+def test_map_circuit_switch_relay_requester_is_diagnostic_text() -> None:
+    specs = _map_circuit_switch(
+        "circ-1",
+        CAPABILITY_SWITCH,
+        {"relay-requester": {"datatype": "enum", "format": "USER,LOAD_SHED,PCS,FAULT"}},
+        {},
+    )
+    assert len(specs) == 1
+    assert specs[0].platform == Platform.SENSOR
+    assert specs[0].entity_category == EntityCategory.DIAGNOSTIC
+
+
+# ── _map_circuit_priority ─────────────────────────────────────────────────
+
+
+_CIRCUIT_PRIORITY_PROPERTIES = {
+    "shed-priority": {
+        "datatype": "enum",
+        "format": "UNKNOWN,OFF_GRID,SOC_THRESHOLD,NEVER",
+        "settable": True,
+    },
+    "pcs-managed": {"datatype": "boolean"},
+    "pcs-priority": {"datatype": "integer"},
+    "relay-controllable": {"datatype": "boolean"},
+}
+
+
+def test_map_circuit_priority_emits_four_specs() -> None:
+    specs = _map_circuit_priority(
+        "circ-1", CAPABILITY_PRIORITY, _CIRCUIT_PRIORITY_PROPERTIES, {}
+    )
+    assert len(specs) == 4
+    by_id = {s.property_id: s for s in specs}
+    shed = by_id["shed-priority"]
+    assert shed.platform == Platform.SELECT
+    assert shed.settable is True
+    assert shed.options == ["UNKNOWN", "OFF_GRID", "SOC_THRESHOLD", "NEVER"]
+    assert by_id["pcs-managed"].platform == Platform.BINARY_SENSOR
+    assert by_id["pcs-priority"].entity_category == EntityCategory.DIAGNOSTIC
+    assert by_id["relay-controllable"].platform == Platform.BINARY_SENSOR
+
+
+def test_map_circuit_priority_shed_priority_locked_when_internal_flag_false() -> None:
+    """Publisher-derived shed-priority-settable=False surfaces as a non-settable select.
+
+    Indicates the circuit is commissioned as permanent OFF_GRID.
+    """
+    specs = _map_circuit_priority(
+        "circ-1",
+        CAPABILITY_PRIORITY,
+        _CIRCUIT_PRIORITY_PROPERTIES,
+        {"properties": {"priority/shed-priority-settable": False}},
+    )
+    shed = next(s for s in specs if s.property_id == "shed-priority")
+    assert shed.settable is False
+
+
+# ── _map_circuit_connection ───────────────────────────────────────────────
+
+
+def test_map_circuit_connection_feeds_status_is_problem_binary() -> None:
+    specs = _map_circuit_connection(
+        "circ-1",
+        CAPABILITY_CONNECTION,
+        {
+            "feeds-device-id": {"datatype": "string"},
+            "feeds-device-type": {"datatype": "string"},
+            "feeds-device-status": {"datatype": "enum", "format": "OK,LOST,DEGRADED"},
+            "count": {"datatype": "integer"},
+        },
+        {},
+    )
+    by_id = {s.property_id: s for s in specs}
+    status = by_id["feeds-device-status"]
+    assert status.platform == Platform.BINARY_SENSOR
+    assert status.device_class == BinarySensorDeviceClass.PROBLEM
+    assert status.on_values == {"LOST", "DEGRADED"}
+    # Non-status feeds are surfaced as diagnostic text sensors.
+    for prop_id in ("feeds-device-id", "feeds-device-type", "count"):
+        assert by_id[prop_id].platform == Platform.SENSOR
+        assert by_id[prop_id].entity_category == EntityCategory.DIAGNOSTIC
+
+
+# ── _parse_enum_format ────────────────────────────────────────────────────
+
+
+def test_parse_enum_format_splits_and_strips() -> None:
+    assert _parse_enum_format("A,B, C ,D") == ["A", "B", "C", "D"]
+    assert _parse_enum_format("") == []
+    assert _parse_enum_format("A,,B") == ["A", "B"]
+
+
+# ── Dispatch table ────────────────────────────────────────────────────────
+
+
+def test_dispatch_table_covers_26_capabilities() -> None:
+    """Every (device-class, capability) pair from the design doc has a mapper."""
+    assert len(CAPABILITY_MAPPERS) == 26
+
+
+def test_dispatch_table_includes_distribution_enclosure_info_and_door() -> None:
+    assert CAPABILITY_MAPPERS[(DEVICE_TYPE_DISTRIBUTION_ENCLOSURE, CAPABILITY_INFO)] is _map_enclosure_info
+    assert CAPABILITY_MAPPERS[(DEVICE_TYPE_DISTRIBUTION_ENCLOSURE, CAPABILITY_DOOR)] is _map_enclosure_door
+
+
+# ── entities_from_tree against real snapshots ────────────────────────────
+
+
+@pytest.fixture
+def panel_a_devices() -> dict[str, Any]:
+    return _load("nt-0000-abc12.json")
+
+
+@pytest.fixture
+def panel_b_devices() -> dict[str, Any]:
+    return _load("nt-0000-def34.json")
+
+
+def _by_device_capability(specs: list[EntitySpec]) -> dict[tuple[str, str], int]:
+    """Group spec counts by (device_id, capability) for tabular assertions."""
+    counts: dict[tuple[str, str], int] = {}
+    for s in specs:
+        key = (s.device_id, s.capability)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def test_walk_panel_a_snapshot_produces_full_entity_set(panel_a_devices: dict[str, Any]) -> None:
+    """Walk panel_a end-to-end with all 26 mappers implemented.
+
+    panel_a has 11 circuits; each contributes 18 specs (info 4 + meter 4 +
+    switch 2 + priority 4 + connection 4). Total = 81 (non-circuit) + 198 = 279.
+    """
+    specs = entities_from_tree(panel_a_devices)
+    counts = _by_device_capability(specs)
+
+    panel = "nt-0000-abc12"
+    lugs_up = "nt-0000-abc12-lugs-up"
+    lugs_dn = "nt-0000-abc12-lugs-dn"
+    bess = "nt-0000-abc12-bess0001"
+    mid = "nt-0000-abc12-bess0001-mid"
+
+    # Panel root — 8 enclosure capabilities = 44 specs (see Phase 2.1).
+    assert counts[(panel, CAPABILITY_INFO)] == 6
+    assert counts[(panel, CAPABILITY_DOOR)] == 1
+    assert counts[(panel, CAPABILITY_METER)] == 2
+    assert counts[(panel, CAPABILITY_STATUS)] == 7
+    assert counts[(panel, CAPABILITY_PCS)] == 17
+    assert counts[(panel, CAPABILITY_POWER_FLOWS)] == 4
+    assert counts[(panel, CAPABILITY_SHED_FORECAST)] == 5
+    assert counts[(panel, CAPABILITY_SHED)] == 2
+
+    # Upstream lugs: info(1) + meter(5) + connection(4 — count + 3 fed-by-*) = 10.
+    assert counts[(lugs_up, CAPABILITY_INFO)] == 1
+    assert counts[(lugs_up, CAPABILITY_METER)] == 5
+    assert counts[(lugs_up, CAPABILITY_CONNECTION)] == 4
+
+    # Downstream lugs: info(1) + meter(5) + connection(4 — count + 3 feeds-*) = 10.
+    assert counts[(lugs_dn, CAPABILITY_INFO)] == 1
+    assert counts[(lugs_dn, CAPABILITY_METER)] == 5
+    assert counts[(lugs_dn, CAPABILITY_CONNECTION)] == 4
+
+    # BESS: info(6 — software-version pre-rename) + soc(2) = 8.
+    assert counts[(bess, CAPABILITY_INFO)] == 6
+    assert counts[(bess, CAPABILITY_SOC)] == 2
+
+    # MID grandchild: info(6) + grid(3) = 9.
+    assert counts[(mid, CAPABILITY_INFO)] == 6
+    assert counts[(mid, CAPABILITY_GRID)] == 3
+
+    # Circuits: 11 × 18 specs each = 198.
+    circuit_devices = {
+        did for did, dev in panel_a_devices.items()
+        if dev["description"].get("type") == "energy.ebus.device.circuit"
+    }
+    assert len(circuit_devices) == 11
+    for cid in circuit_devices:
+        assert counts[(cid, CAPABILITY_INFO)] == 4
+        assert counts[(cid, CAPABILITY_METER)] == 4
+        assert counts[(cid, CAPABILITY_SWITCH)] == 2
+        assert counts[(cid, CAPABILITY_PRIORITY)] == 4
+        assert counts[(cid, CAPABILITY_CONNECTION)] == 4
+
+    assert {s.device_id for s in specs} == {panel, lugs_up, lugs_dn, bess, mid} | circuit_devices
+    assert len(specs) == 279  # 44 panel + 10 + 10 lugs + 8 BESS + 9 MID + 11 × 18 circuits
+
+
+def test_walk_panel_a_upstream_lugs_use_grid_energy_names(panel_a_devices: dict[str, Any]) -> None:
+    """Upstream lugs use the friendly 'Energy' / 'Energy Returned' names.
+
+    This is the Energy Dashboard wiring source documented in the README.
+    """
+    specs = entities_from_tree(panel_a_devices)
+    up_energy = [
         s for s in specs
-        if s.node_id == MOCK_CIRCUIT_UUID and s.property_id == "imported-energy"
+        if s.device_id == "nt-0000-abc12-lugs-up"
+        and s.capability == CAPABILITY_METER
+        and s.property_id in {"imported-energy", "exported-energy"}
     ]
-    exported = [
-        s for s in specs
-        if s.node_id == MOCK_CIRCUIT_UUID and s.property_id == "exported-energy"
-    ]
-    assert len(imported) == 1
-    assert imported[0].name == "Energy Returned"
-    assert len(exported) == 1
-    assert exported[0].name == "Energy"
+    by_id = {s.property_id: s for s in up_energy}
+    assert by_id["imported-energy"].name == "Energy"
+    assert by_id["exported-energy"].name == "Energy Returned"
 
 
-def test_upstream_lug_naming():
-    """Test upstream lug entities have clean names (no 'Upstream' prefix on main sensors)."""
-    desc = {
-        "nodes": {
-            "upstream-lug": {
-                "name": "Upstream",
-                "type": "energy.ebus.device.lugs.upstream",
-                "properties": {
-                    "imported-energy": {
-                        "name": "Imported Energy",
-                        "datatype": "float",
-                        "unit": "Wh",
-                    },
-                    "exported-energy": {
-                        "name": "Exported Energy",
-                        "datatype": "float",
-                        "unit": "Wh",
-                    },
-                    "active-power": {
-                        "name": "Power",
-                        "datatype": "float",
-                        "unit": "W",
-                    },
-                    "current": {
-                        "name": "Current",
-                        "datatype": "float",
-                        "unit": "A",
-                    },
-                },
-            }
-        }
+def test_walk_panel_b_snapshot_includes_pv_and_more_circuits(panel_b_devices: dict[str, Any]) -> None:
+    """panel_b adds PV and 19 circuits on top of panel_a's surface.
+
+    Spec totals: 86 (non-circuit, including PV) + 19 × 18 = 86 + 342 = 428.
+    """
+    specs = entities_from_tree(panel_b_devices)
+    counts = _by_device_capability(specs)
+
+    panel = "nt-0000-def34"
+    pv = "nt-0000-def34-pv0001"
+
+    # PV: info(5) — vendor, product, serial, software-version (pre-rename), nameplate-capacity (W).
+    assert counts[(pv, CAPABILITY_INFO)] == 5
+
+    circuit_devices = {
+        did for did, dev in panel_b_devices.items()
+        if dev["description"].get("type") == "energy.ebus.device.circuit"
     }
-    specs = entities_from_description(desc)
-    imported = [s for s in specs if s.property_id == "imported-energy"][0]
-    exported = [s for s in specs if s.property_id == "exported-energy"][0]
-    power = [s for s in specs if s.property_id == "active-power"][0]
-    current = [s for s in specs if s.property_id == "current"][0]
-    # Upstream: clean names since device is already "Site Metering" or panel-level
-    assert imported.name == "Energy"
-    assert exported.name == "Energy Returned"
-    assert power.name == "Power"
-    # Current still gets direction prefix
-    assert current.name == "Upstream Current"
+    assert len(circuit_devices) == 19
 
-
-def test_downstream_lug_naming():
-    """Test downstream lug entities have 'Downstream' prefix."""
-    desc = {
-        "nodes": {
-            "downstream-lug": {
-                "name": "Downstream",
-                "type": "energy.ebus.device.lugs.downstream",
-                "properties": {
-                    "imported-energy": {
-                        "name": "Imported Energy",
-                        "datatype": "float",
-                        "unit": "Wh",
-                    },
-                    "exported-energy": {
-                        "name": "Exported Energy",
-                        "datatype": "float",
-                        "unit": "Wh",
-                    },
-                    "active-power": {
-                        "name": "Power",
-                        "datatype": "float",
-                        "unit": "W",
-                    },
-                },
-            }
-        }
+    non_circuit = {
+        panel,
+        "nt-0000-def34-lugs-up",
+        "nt-0000-def34-lugs-dn",
+        "nt-0000-def34-bess0001",
+        "nt-0000-def34-bess0001-mid",
+        pv,
     }
-    specs = entities_from_description(desc)
-    imported = [s for s in specs if s.property_id == "imported-energy"][0]
-    exported = [s for s in specs if s.property_id == "exported-energy"][0]
-    power = [s for s in specs if s.property_id == "active-power"][0]
-    assert imported.name == "Downstream Energy"
-    assert exported.name == "Downstream Energy Returned"
-    assert power.name == "Downstream Power"
+    assert {s.device_id for s in specs} == non_circuit | circuit_devices
+    assert len(specs) == 428
 
 
-# --- PV generation power entity tests ---
+def test_walk_empty_tree_returns_empty_list() -> None:
+    assert entities_from_tree({}) == []
 
 
-def test_pv_feed_creates_generation_power():
-    """PV with feed→circuit creates generation-power entity on the circuit."""
-    from unittest.mock import MagicMock
-
-    panel = MagicMock()
-    panel.serial_number = "nt-0000-abc12"
-
-    def get_prop(node_id, prop_id):
-        if node_id == "pv-node" and prop_id == "feed":
-            return MOCK_CIRCUIT_UUID
-        if node_id == MOCK_CIRCUIT_UUID and prop_id == "name":
-            return "Commissioned PV System"
-        return None
-
-    panel.get_property_value = MagicMock(side_effect=get_prop)
-
-    desc = {
-        "nodes": {
-            MOCK_CIRCUIT_UUID: {
-                "name": "Circuit 1",
-                "type": "energy.ebus.device.circuit",
-                "properties": {
-                    "active-power": {
-                        "name": "Active Power",
-                        "datatype": "float",
-                        "unit": "kW",
-                    },
-                    "relay": {
-                        "name": "Relay",
-                        "datatype": "enum",
-                        "format": "OPEN,CLOSED",
-                        "settable": True,
-                    },
-                },
+def test_walk_skips_non_ebus_device_types() -> None:
+    """A device with a non-eBus type is logged and skipped, doesn't raise."""
+    devices = {
+        "rogue-thermostat": {
+            "description": {
+                "type": "io.somevendor.thermostat",
+                "nodes": {"setpoint": {"properties": {"target": {}}}},
             },
-            "pv-node": {
-                "name": "Solar",
-                "type": "energy.ebus.device.pv",
-                "properties": {
-                    "feed": {"name": "Feed", "datatype": "string"},
-                    "power-w": {"name": "Power", "datatype": "float", "unit": "W"},
-                },
-            },
-        }
+        },
     }
-    specs = entities_from_description(desc, panel=panel)
-    gen = [s for s in specs if s.property_id == "generation-power"]
-    assert len(gen) == 1
-    assert gen[0].node_id == MOCK_CIRCUIT_UUID
-    assert gen[0].source_property_id == "active-power"
-    assert gen[0].negate is False
-    assert gen[0].name == "Generation Power"
-    assert gen[0].device_class == SensorDeviceClass.POWER
-    assert gen[0].native_unit == UnitOfPower.WATT
-    assert gen[0].node_type == "energy.ebus.device.circuit"
-    assert gen[0].device_name == "Commissioned PV System"
+    assert entities_from_tree(devices) == []
 
 
-def test_no_pv_no_generation_power():
-    """Without PV nodes, no generation-power entities are created."""
-    from unittest.mock import MagicMock
-
-    panel = MagicMock()
-    panel.serial_number = "nt-0000-abc12"
-    panel.get_property_value = MagicMock(return_value=None)
-
-    # Description with only a circuit, no PV node
-    desc = {
-        "nodes": {
-            MOCK_CIRCUIT_UUID: {
-                "name": "Circuit 1",
-                "type": "energy.ebus.device.circuit",
-                "properties": {
-                    "active-power": {
-                        "name": "Active Power",
-                        "datatype": "float",
-                        "unit": "kW",
-                    },
-                },
-            },
-        }
-    }
-    specs = entities_from_description(desc, panel=panel)
-    gen = [s for s in specs if s.property_id == "generation-power"]
-    assert len(gen) == 0
-
-
-def test_pv_feed_not_resolved_no_generation_power():
-    """PV exists but feed value is None (not yet resolved), no generation-power entity."""
-    from unittest.mock import MagicMock
-
-    panel = MagicMock()
-    panel.serial_number = "nt-0000-abc12"
-    panel.get_property_value = MagicMock(return_value=None)
-
-    desc = {
-        "nodes": {
-            MOCK_CIRCUIT_UUID: {
-                "name": "Circuit 1",
-                "type": "energy.ebus.device.circuit",
-                "properties": {
-                    "active-power": {
-                        "name": "Active Power",
-                        "datatype": "float",
-                        "unit": "kW",
-                    },
-                },
-            },
-            "pv-node": {
-                "name": "Solar",
-                "type": "energy.ebus.device.pv",
-                "properties": {
-                    "feed": {"name": "Feed", "datatype": "string"},
-                },
-            },
-        }
-    }
-    specs = entities_from_description(desc, panel=panel)
-    gen = [s for s in specs if s.property_id == "generation-power"]
-    assert len(gen) == 0
+def test_entityspec_has_tree_position_fields() -> None:
+    """Guard against accidental removal of the device_id / capability fields."""
+    spec = EntitySpec(
+        device_id="dev",
+        capability="info",
+        property_id="x",
+        platform=Platform.SENSOR,
+        name="X",
+    )
+    assert spec.device_id == "dev"
+    assert spec.capability == "info"
+    assert spec.via_device_id == ""

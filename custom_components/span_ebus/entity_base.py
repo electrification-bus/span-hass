@@ -6,15 +6,13 @@ from abc import abstractmethod
 from collections.abc import Callable
 import logging
 
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 
 from .node_mappers import EntitySpec
 from .span_panel import SpanPanel
-from homeassistant.helpers.device_registry import DeviceInfo
-
-from .const import DOMAIN
 from .util import (
-    _SUB_DEVICE_TYPES,
+    descendant_device_info,
     make_unique_id,
     panel_device_info,
 )
@@ -31,48 +29,46 @@ class SpanEbusEntity(Entity):
     def __init__(self, panel: SpanPanel, spec: EntitySpec) -> None:
         """Initialize the entity."""
         self._panel = panel
-        self._node_id = spec.node_id
+        self._device_id = spec.device_id
+        self._capability = spec.capability
         self._property_id = spec.property_id
         self._source_property_id = spec.source_property_id or spec.property_id
 
         self._attr_unique_id = make_unique_id(
-            panel.serial_number, spec.node_id, spec.property_id
+            panel.serial_number, spec.device_id, spec.capability, spec.property_id
         )
         self._attr_name = spec.name
 
-        if spec.node_type in _SUB_DEVICE_TYPES:
-            # Set the device name here so HA generates consistent entity_ids
-            # across all platforms. The name is also managed reactively by
-            # _register_subdevices and _on_name_update callbacks in __init__.py
-            # for updates after initial setup.
-            self._attr_device_info = DeviceInfo(
-                identifiers={(DOMAIN, f"{panel.serial_number}_{spec.node_id}")},
-                name=spec.device_name,
-            )
-        else:
-            self._attr_device_info = panel_device_info(panel.serial_number)
+        self._attr_device_info = _device_info_for_spec(panel, spec)
 
         self._unregister_property: Callable[[], None] | None = None
         self._unregister_availability: Callable[[], None] | None = None
 
     @property
     def available(self) -> bool:
-        """Return True if the panel is available."""
-        return self._panel.available
+        """Per Homie 5 effective-state, propagate the root's non-ready state down.
+
+        A child device's ``available`` flips false whenever the root is init /
+        disconnected / lost / sleeping, without each descendant having to
+        republish its own state.
+        """
+        return self._panel.is_device_available(self._device_id)
 
     async def async_added_to_hass(self) -> None:
         """Register callbacks when entity is added to HA."""
-        # Register for property updates (use source_property_id for MQTT subscription)
         self._unregister_property = self._panel.register_property_callback(
-            self._node_id, self._source_property_id, self._on_value_update
+            self._device_id,
+            self._capability,
+            self._source_property_id,
+            self._on_value_update,
         )
-        # Register for availability updates
         self._unregister_availability = self._panel.register_availability_callback(
-            self._on_availability_update
+            self._device_id, self._on_availability_update
         )
 
-        # Set initial value if already known
-        current = self._panel.get_property_value(self._node_id, self._source_property_id)
+        current = self._panel.get_property_value(
+            self._device_id, self._capability, self._source_property_id
+        )
         if current is not None:
             self._update_from_value(current)
 
@@ -94,8 +90,22 @@ class SpanEbusEntity(Entity):
 
     @abstractmethod
     def _update_from_value(self, value: str) -> None:
-        """Update entity state from a raw MQTT property value.
+        """Update entity state from a raw MQTT property value."""
 
-        Subclasses must implement this to parse the value string
-        into the appropriate native state.
-        """
+
+def _device_info_for_spec(panel: SpanPanel, spec: EntitySpec) -> DeviceInfo:
+    """Pick the right DeviceInfo for the entity's owning device.
+
+    Panel-root entities go on the panel device; descendant entities go on
+    per-descendant child devices that the integration registers in
+    ``__init__.py``.
+    """
+    if spec.device_id == panel.serial_number:
+        return panel_device_info(panel.serial_number)
+    return descendant_device_info(
+        panel_serial=panel.serial_number,
+        device_id=spec.device_id,
+        device_type=spec.device_type,
+        device_name=spec.device_name,
+        parent_device_id=spec.via_device_id or None,
+    )
