@@ -843,38 +843,133 @@ def _map_pv_info(
 
 
 def _map_evse_info(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — EVSE identity (vendor, product, part, serial, firmware)."""
-    return []
+    """EVSE identity: vendor, product, part-number, serial, firmware-version.
+
+    ``part-number`` is unique to EVSE info (not present on BESS / MID / PV);
+    everything else is the standard text-field shape factored through
+    ``_info_text_table``. There's no ``model`` row on the EVSE info node.
+    """
+    table = _info_text_table("vendor-name", "product-name", "serial-number")
+    table["part-number"] = {
+        "platform": Platform.SENSOR,
+        "name": "Part Number",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 def _map_evse_status(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — EVSE operational-state enum (renamed from status/status)."""
-    return []
+    """EVSE operational state (was ``status/status`` in the flat data model).
+
+    Surfaces the enum text directly so the value space (which is publisher-
+    defined and may add states in future firmware) reads through verbatim.
+    """
+    if "operational-state" not in properties:
+        return []
+    return [
+        EntitySpec(
+            device_id=device_id,
+            capability=capability,
+            property_id="operational-state",
+            platform=Platform.SENSOR,
+            name="Status",
+            icon="mdi:ev-station",
+        )
+    ]
 
 
 def _map_evse_switch(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — EVSE lock-state."""
-    return []
+    """EVSE lock-state — the cable lock indicator (read-only per spec).
+
+    The EVSE controls the lock during a charging session; the user can't write
+    it. Surfaced as a text sensor showing the enum value rather than as a
+    binary so consumers can distinguish all states (LOCKED, UNLOCKED, plus any
+    UNKNOWN / FAULT states the publisher may add).
+    """
+    if "lock-state" not in properties:
+        return []
+    return [
+        EntitySpec(
+            device_id=device_id,
+            capability=capability,
+            property_id="lock-state",
+            platform=Platform.SENSOR,
+            name="Lock State",
+            icon="mdi:lock",
+        )
+    ]
 
 
 def _map_evse_meter(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — EVSE advertised-current."""
-    return []
+    """EVSE advertised-current — the current the EVSE is offering to the car.
+
+    Distinct from ``config/max-charge-current`` (the hardware ceiling) and
+    ``config/user-max-charge-current`` (the user-imposed limit); the EVSE's
+    advertisement is the lower of those minus any in-session derate.
+    """
+    table: dict[str, dict[str, Any]] = {
+        "advertised-current": {
+            "platform": Platform.SENSOR,
+            "name": "Advertised Current",
+            "device_class": SensorDeviceClass.CURRENT,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": UnitOfElectricCurrent.AMPERE,
+        },
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 def _map_evse_config(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — EVSE user-max-charge-current (settable) + max-charge-current."""
-    return []
+    """EVSE config: user-max-charge-current (settable) + max-charge-current.
+
+    ``user-max-charge-current`` is settable, with a dynamic publisher-provided
+    ``$format = "<lower>:<max-charge-current>"`` that bounds the writable
+    range. For now it surfaces as a read-only diagnostic sensor — Phase 3
+    will add Platform.NUMBER support to make it settable from the HA UI.
+    ``max-charge-current`` is the hardware ceiling (static, diagnostic).
+    """
+    table: dict[str, dict[str, Any]] = {
+        "user-max-charge-current": {
+            "platform": Platform.SENSOR,
+            "name": "User Max Charge Current",
+            "device_class": SensorDeviceClass.CURRENT,
+            "native_unit": UnitOfElectricCurrent.AMPERE,
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "max-charge-current": {
+            "platform": Platform.SENSOR,
+            "name": "Max Charge Current",
+            "device_class": SensorDeviceClass.CURRENT,
+            "native_unit": UnitOfElectricCurrent.AMPERE,
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 # ─ Circuit capabilities ─

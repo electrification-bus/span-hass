@@ -27,6 +27,7 @@ from homeassistant.const import (
 import pytest
 
 from custom_components.span_ebus.const import (
+    CAPABILITY_CONFIG,
     CAPABILITY_CONNECTION,
     CAPABILITY_DOOR,
     CAPABILITY_GRID,
@@ -38,6 +39,7 @@ from custom_components.span_ebus.const import (
     CAPABILITY_SHED_FORECAST,
     CAPABILITY_SOC,
     CAPABILITY_STATUS,
+    CAPABILITY_SWITCH,
     DEVICE_TYPE_DISTRIBUTION_ENCLOSURE,
 )
 from custom_components.span_ebus.node_mappers_tree import (
@@ -53,6 +55,11 @@ from custom_components.span_ebus.node_mappers_tree import (
     _map_enclosure_shed,
     _map_enclosure_shed_forecast,
     _map_enclosure_status,
+    _map_evse_config,
+    _map_evse_info,
+    _map_evse_meter,
+    _map_evse_status,
+    _map_evse_switch,
     _map_lugs_connection,
     _map_lugs_info,
     _map_lugs_meter,
@@ -658,6 +665,104 @@ def test_map_pv_info_no_model_or_hardware_version_in_v1() -> None:
     )
     # Mapper has no row for these keys, so they're silently skipped.
     assert specs == []
+
+
+# ── EVSE mappers (no fixture coverage — neither snapshot has a Drive) ───
+
+
+def test_map_evse_info_emits_five_diagnostic_specs_for_legacy_publisher() -> None:
+    """EVSE info has 5 fields including the EVSE-unique part-number."""
+    specs = _map_evse_info(
+        "evse-1",
+        CAPABILITY_INFO,
+        {
+            "vendor-name": {},
+            "product-name": {},
+            "part-number": {},
+            "serial-number": {},
+            "software-version": {},
+        },
+        {},
+    )
+    assert len(specs) == 5
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["part-number"].name == "Part Number"
+    assert by_id["software-version"].name == "Firmware Version"
+    for s in specs:
+        assert s.entity_category == EntityCategory.DIAGNOSTIC
+
+
+def test_map_evse_info_no_model_row() -> None:
+    """EVSE info has no model row on the wire — the mapper silently skips it."""
+    specs = _map_evse_info("evse-1", CAPABILITY_INFO, {"model": {}}, {})
+    assert specs == []
+
+
+def test_map_evse_status_emits_text_sensor_with_ev_icon() -> None:
+    specs = _map_evse_status(
+        "evse-1",
+        CAPABILITY_STATUS,
+        {"operational-state": {"datatype": "enum"}},
+        {},
+    )
+    assert len(specs) == 1
+    spec = specs[0]
+    assert spec.platform == Platform.SENSOR
+    assert spec.icon == "mdi:ev-station"
+    assert spec.name == "Status"
+
+
+def test_map_evse_switch_emits_text_lock_state_sensor() -> None:
+    """Lock state is read-only per spec; surface as text sensor not a switch."""
+    specs = _map_evse_switch(
+        "evse-1",
+        CAPABILITY_SWITCH,
+        {"lock-state": {"datatype": "enum"}},
+        {},
+    )
+    assert len(specs) == 1
+    spec = specs[0]
+    assert spec.platform == Platform.SENSOR
+    assert spec.settable is False
+    assert spec.icon == "mdi:lock"
+
+
+def test_map_evse_meter_emits_current_measurement() -> None:
+    specs = _map_evse_meter(
+        "evse-1",
+        CAPABILITY_METER,
+        {"advertised-current": {"datatype": "float", "unit": "A"}},
+        {},
+    )
+    assert len(specs) == 1
+    spec = specs[0]
+    assert spec.device_class == SensorDeviceClass.CURRENT
+    assert spec.state_class == SensorStateClass.MEASUREMENT
+    assert spec.native_unit == UnitOfElectricCurrent.AMPERE
+
+
+def test_map_evse_config_emits_two_current_sensors() -> None:
+    """user-max-charge-current and max-charge-current both surface as CURRENT diagnostics.
+
+    Phase 3 will upgrade user-max-charge-current to Platform.NUMBER for
+    settability; for now it's a read-only sensor.
+    """
+    specs = _map_evse_config(
+        "evse-1",
+        CAPABILITY_CONFIG,
+        {
+            "user-max-charge-current": {"unit": "A", "settable": True},
+            "max-charge-current": {"unit": "A"},
+        },
+        {},
+    )
+    assert len(specs) == 2
+    by_id = {s.property_id: s for s in specs}
+    for prop_id in ("user-max-charge-current", "max-charge-current"):
+        s = by_id[prop_id]
+        assert s.device_class == SensorDeviceClass.CURRENT
+        assert s.native_unit == UnitOfElectricCurrent.AMPERE
+        assert s.entity_category == EntityCategory.DIAGNOSTIC
 
 
 # ── Dispatch table ────────────────────────────────────────────────────────
