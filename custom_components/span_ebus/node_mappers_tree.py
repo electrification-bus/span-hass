@@ -30,6 +30,7 @@ from homeassistant.const import (
     Platform,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
+    UnitOfEnergy,
     UnitOfPower,
     UnitOfTime,
 )
@@ -466,25 +467,186 @@ def _map_enclosure_shed(
 # ─ Lugs (upstream + downstream) capabilities ─
 
 
+def _lug_direction(device_data: dict[str, Any]) -> str:
+    """Return the lug's direction ('upstream'/'downstream'/'') from runtime properties.
+
+    The publisher reports lowercase even though the description enum format is
+    UPPERCASE — normalise before comparing. Returns the empty string when the
+    direction isn't yet known (e.g. property values haven't arrived at the time
+    the descriptor is constructed); callers should treat that as "unknown".
+    """
+    raw = device_data.get("properties", {}).get("info/direction", "")
+    return str(raw).lower()
+
+
 def _map_lugs_info(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — lugs info (direction)."""
-    return []
+    """Lugs info: direction (upstream / downstream) as a diagnostic sensor.
+
+    The direction is a static device property — the device-info name typically
+    already encodes it ("Upstream Lugs"), but exposing it as a diagnostic
+    entity gives automations a queryable handle.
+    """
+    if "direction" not in properties:
+        return []
+    return [
+        EntitySpec(
+            device_id=device_id,
+            capability=capability,
+            property_id="direction",
+            platform=Platform.SENSOR,
+            name="Direction",
+            entity_category=EntityCategory.DIAGNOSTIC,
+        )
+    ]
 
 
 def _map_lugs_meter(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — lugs meter (currents, power, imported/exported energy)."""
-    return []
+    """Lugs meter: per-leg currents, active-power, imported / exported energy.
+
+    Energy entity names depend on direction. On the upstream lug, the dominant
+    flow is grid → panel → loads, so ``imported-energy`` (= panel consumption
+    from grid) carries the user-friendly name "Energy" and ``exported-energy``
+    (= panel → grid export) is "Energy Returned" — matching the README. On the
+    downstream lug, both flow directions reverse semantically; SPAN does not
+    populate downstream values today (see the spec note about inter-panel
+    feedthrough), so we use literal "Imported Energy" / "Exported Energy"
+    names that will read unambiguously when a future firmware enables them.
+    Power is direction-agnostic — positive always means "flowing into the
+    panel," negative "flowing out" — so it stays "Power" in both directions.
+    """
+    is_upstream = _lug_direction(device_data) == "upstream"
+    imported_name = "Energy" if is_upstream else "Imported Energy"
+    exported_name = "Energy Returned" if is_upstream else "Exported Energy"
+
+    table: dict[str, dict[str, Any]] = {
+        "l1-current": {
+            "platform": Platform.SENSOR,
+            "name": "L1 Current",
+            "device_class": SensorDeviceClass.CURRENT,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": UnitOfElectricCurrent.AMPERE,
+        },
+        "l2-current": {
+            "platform": Platform.SENSOR,
+            "name": "L2 Current",
+            "device_class": SensorDeviceClass.CURRENT,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": UnitOfElectricCurrent.AMPERE,
+        },
+        "active-power": {
+            "platform": Platform.SENSOR,
+            "name": "Power",
+            "device_class": SensorDeviceClass.POWER,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": UnitOfPower.WATT,
+        },
+        "imported-energy": {
+            "platform": Platform.SENSOR,
+            "name": imported_name,
+            "device_class": SensorDeviceClass.ENERGY,
+            "state_class": SensorStateClass.TOTAL_INCREASING,
+            "native_unit": UnitOfEnergy.WATT_HOUR,
+        },
+        "exported-energy": {
+            "platform": Platform.SENSOR,
+            "name": exported_name,
+            "device_class": SensorDeviceClass.ENERGY,
+            "state_class": SensorStateClass.TOTAL_INCREASING,
+            "native_unit": UnitOfEnergy.WATT_HOUR,
+        },
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 def _map_lugs_connection(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — lugs connection capability (fed-by-/feeds-device triplet)."""
-    return []
+    """Lugs connection: who feeds / is fed by this lug.
+
+    The spec declares both ``fed-by-*`` and ``feeds-*`` triplets on every lug
+    for symmetry, but each direction only populates its own half on the wire.
+    Filter at the descriptor level so the user doesn't see permanently-empty
+    "Feeds Device" entities on an upstream lug (and vice versa). When the
+    direction hasn't yet been observed (property values not loaded — e.g.
+    descriptor built before the broker delivered them), emit nothing rather
+    than guess wrong; Phase 3's setup path waits for `info/direction` before
+    invoking the mapper.
+
+    The ``*-device-status`` enum (OK / LOST / DEGRADED) is the spec's
+    replacement for the old ``bess/connected`` boolean. Surfaced as a PROBLEM
+    binary_sensor that's "on" when status is anything other than OK — the
+    natural HA-side fit for a "something's wrong" indicator.
+    """
+    direction = _lug_direction(device_data)
+
+    common: dict[str, dict[str, Any]] = {
+        "count": {
+            "platform": Platform.SENSOR,
+            "name": "Connection Count",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+    }
+    upstream_only: dict[str, dict[str, Any]] = {
+        "fed-by-device-id": {
+            "platform": Platform.SENSOR,
+            "name": "Fed By Device",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "fed-by-device-type": {
+            "platform": Platform.SENSOR,
+            "name": "Fed By Device Type",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "fed-by-device-status": {
+            "platform": Platform.BINARY_SENSOR,
+            "name": "Upstream Connection Problem",
+            "device_class": BinarySensorDeviceClass.PROBLEM,
+            "on_values": {"LOST", "DEGRADED"},
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+    }
+    downstream_only: dict[str, dict[str, Any]] = {
+        "feeds-device-id": {
+            "platform": Platform.SENSOR,
+            "name": "Feeds Device",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "feeds-device-type": {
+            "platform": Platform.SENSOR,
+            "name": "Feeds Device Type",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "feeds-device-status": {
+            "platform": Platform.BINARY_SENSOR,
+            "name": "Downstream Connection Problem",
+            "device_class": BinarySensorDeviceClass.PROBLEM,
+            "on_values": {"LOST", "DEGRADED"},
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+    }
+
+    table: dict[str, dict[str, Any]]
+    if direction == "upstream":
+        table = {**common, **upstream_only}
+    elif direction == "downstream":
+        table = {**common, **downstream_only}
+    else:
+        return []
+
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 # ─ BESS capabilities ─

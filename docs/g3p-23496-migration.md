@@ -385,13 +385,12 @@ These should be additive — no replacement migration logic needed (per decision
 
 ## Reference snapshots
 
-Tree-v1 JSON captures of dcj's home panels are at `~/projects/span.io/shadow-repo/device/gateway/services/ebus-panel-adapter/scripts/`:
+Sanitized tree-v1 captures live in-repo at `tests/fixtures/tree/`:
 
-- `nt-0000-abc12-after-PR6-deploy-tree.json` — panel after migration deploy
-- `nt-0000-def34-after-PR6-deploy-tree.json` — sub-panel after migration deploy
-- `*-before-PR6-deploy.json` files exist for panel-a, panel-c, panel-b — flat-publication captures for diff'ing against tree captures
+- `nt-0000-abc12.json` — panel A (lead): 16 devices (panel root + 2 lugs + BESS + MID + 11 circuits)
+- `nt-0000-def34.json` — panel B (sub): 25 devices (panel root + 2 lugs + BESS + MID + PV + 19 circuits)
 
-These are the test fixtures for the rewrite. `snapshot-tool conformance` (spanio/device PR #4229) can validate a fresh capture against PropertyDefinition expectations.
+Panel serials, BESS / PV product identifiers, postal code, time zone, and circuit UUIDs have been replaced with synthetic values that preserve the structural shape but expose no deployment-identifying information. The unsanitized source captures are kept locally outside this repo (in the device shadow-repo) for reference only. `snapshot-tool conformance` (spanio/device PR #4229) can validate a fresh capture against PropertyDefinition expectations.
 
 ## Test plan
 

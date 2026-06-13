@@ -20,12 +20,14 @@ from homeassistant.const import (
     Platform,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
+    UnitOfEnergy,
     UnitOfPower,
     UnitOfTime,
 )
 import pytest
 
 from custom_components.span_ebus.const import (
+    CAPABILITY_CONNECTION,
     CAPABILITY_DOOR,
     CAPABILITY_INFO,
     CAPABILITY_METER,
@@ -47,6 +49,9 @@ from custom_components.span_ebus.node_mappers_tree import (
     _map_enclosure_shed,
     _map_enclosure_shed_forecast,
     _map_enclosure_status,
+    _map_lugs_connection,
+    _map_lugs_info,
+    _map_lugs_meter,
     device_type_short,
     entities_from_tree,
 )
@@ -216,8 +221,8 @@ def test_map_enclosure_status_relay_is_binary_with_closed_as_on() -> None:
     assert specs[0].on_values == {"CLOSED"}
 
 
-def test_map_enclosure_status_emits_seven_specs_from_panel-a_shape() -> None:
-    """panel-a publishes all 7 status properties (with legacy vendor-cloud name)."""
+def test_map_enclosure_status_emits_seven_specs_from_panel_a_shape() -> None:
+    """panel_a publishes all 7 status properties (with legacy vendor-cloud name)."""
     specs = _map_enclosure_status(
         "panel-1",
         CAPABILITY_STATUS,
@@ -253,8 +258,8 @@ def test_map_enclosure_status_uses_spec_cloud_connection_name_when_published() -
 # ── _map_enclosure_pcs ────────────────────────────────────────────────────
 
 
-def test_map_enclosure_pcs_emits_17_specs_for_panel-a() -> None:
-    """panel-a publishes the full PCS surface: 4 fixed + 5 limit families × 3 = 17."""
+def test_map_enclosure_pcs_emits_17_specs_for_panel_a() -> None:
+    """panel_a publishes the full PCS surface: 4 fixed + 5 limit families × 3 = 17."""
     properties = {
         "enabled": {}, "active": {},
         "grid-islandable": {}, "breaker-rating": {"unit": "A"},
@@ -371,6 +376,126 @@ def test_map_enclosure_shed_soc_threshold_is_battery_percentage() -> None:
     assert specs[0].entity_category == EntityCategory.DIAGNOSTIC
 
 
+# ── _map_lugs_info ────────────────────────────────────────────────────────
+
+
+def test_map_lugs_info_emits_direction_sensor() -> None:
+    specs = _map_lugs_info(
+        "panel-1-lugs-up",
+        CAPABILITY_INFO,
+        {"direction": {"datatype": "enum", "format": "UPSTREAM,DOWNSTREAM"}},
+        {},
+    )
+    assert len(specs) == 1
+    assert specs[0].platform == Platform.SENSOR
+    assert specs[0].entity_category == EntityCategory.DIAGNOSTIC
+    assert specs[0].name == "Direction"
+
+
+def test_map_lugs_info_empty_when_no_direction() -> None:
+    assert _map_lugs_info("panel-1-lugs-up", CAPABILITY_INFO, {}, {}) == []
+
+
+# ── _map_lugs_meter ───────────────────────────────────────────────────────
+
+
+_LUGS_METER_PROPERTIES = {
+    "l1-current": {"unit": "A"},
+    "l2-current": {"unit": "A"},
+    "active-power": {"unit": "W"},
+    "imported-energy": {"unit": "Wh"},
+    "exported-energy": {"unit": "Wh"},
+}
+
+
+def test_map_lugs_meter_upstream_uses_grid_friendly_energy_names() -> None:
+    device_data = {"properties": {"info/direction": "upstream"}}
+    specs = _map_lugs_meter(
+        "panel-1-lugs-up", CAPABILITY_METER, _LUGS_METER_PROPERTIES, device_data
+    )
+    assert len(specs) == 5
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["imported-energy"].name == "Energy"
+    assert by_id["exported-energy"].name == "Energy Returned"
+    assert by_id["imported-energy"].device_class == SensorDeviceClass.ENERGY
+    assert by_id["imported-energy"].state_class == SensorStateClass.TOTAL_INCREASING
+    assert by_id["imported-energy"].native_unit == UnitOfEnergy.WATT_HOUR
+    assert by_id["active-power"].device_class == SensorDeviceClass.POWER
+    assert by_id["active-power"].native_unit == UnitOfPower.WATT
+    assert by_id["l1-current"].native_unit == UnitOfElectricCurrent.AMPERE
+
+
+def test_map_lugs_meter_downstream_uses_literal_energy_names() -> None:
+    """Downstream-direction energy entities use unambiguous literal names.
+
+    SPAN does not populate downstream lug values today; the literal names will
+    read correctly when a future firmware enables inter-panel feedthrough.
+    """
+    device_data = {"properties": {"info/direction": "downstream"}}
+    specs = _map_lugs_meter(
+        "panel-1-lugs-dn", CAPABILITY_METER, _LUGS_METER_PROPERTIES, device_data
+    )
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["imported-energy"].name == "Imported Energy"
+    assert by_id["exported-energy"].name == "Exported Energy"
+
+
+def test_map_lugs_meter_unknown_direction_falls_back_to_literal() -> None:
+    """Unknown direction still emits sensors with literal names.
+
+    Tests the descriptor in isolation (when the publisher hasn't yet sent
+    info/direction at the time entities_from_tree was called).
+    """
+    specs = _map_lugs_meter("panel-1-lugs-up", CAPABILITY_METER, _LUGS_METER_PROPERTIES, {})
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["imported-energy"].name == "Imported Energy"
+    assert by_id["exported-energy"].name == "Exported Energy"
+
+
+# ── _map_lugs_connection ──────────────────────────────────────────────────
+
+
+_LUGS_CONNECTION_FULL = {
+    "fed-by-device-id": {"datatype": "string"},
+    "fed-by-device-type": {"datatype": "string"},
+    "fed-by-device-status": {"datatype": "enum", "format": "OK,LOST,DEGRADED"},
+    "feeds-device-id": {"datatype": "string"},
+    "feeds-device-type": {"datatype": "string"},
+    "feeds-device-status": {"datatype": "enum", "format": "OK,LOST,DEGRADED"},
+    "count": {"datatype": "integer"},
+}
+
+
+def test_map_lugs_connection_upstream_emits_fed_by_triplet_plus_count() -> None:
+    device_data = {"properties": {"info/direction": "upstream"}}
+    specs = _map_lugs_connection(
+        "panel-1-lugs-up", CAPABILITY_CONNECTION, _LUGS_CONNECTION_FULL, device_data
+    )
+    prop_ids = {s.property_id for s in specs}
+    assert prop_ids == {"fed-by-device-id", "fed-by-device-type", "fed-by-device-status", "count"}
+    status = next(s for s in specs if s.property_id == "fed-by-device-status")
+    assert status.platform == Platform.BINARY_SENSOR
+    assert status.device_class == BinarySensorDeviceClass.PROBLEM
+    assert status.on_values == {"LOST", "DEGRADED"}
+
+
+def test_map_lugs_connection_downstream_emits_feeds_triplet_plus_count() -> None:
+    device_data = {"properties": {"info/direction": "downstream"}}
+    specs = _map_lugs_connection(
+        "panel-1-lugs-dn", CAPABILITY_CONNECTION, _LUGS_CONNECTION_FULL, device_data
+    )
+    prop_ids = {s.property_id for s in specs}
+    assert prop_ids == {"feeds-device-id", "feeds-device-type", "feeds-device-status", "count"}
+
+
+def test_map_lugs_connection_unknown_direction_emits_nothing() -> None:
+    """Unknown direction emits nothing to avoid permanently-empty entities.
+
+    Without direction we cannot say which half (fed-by-* vs feeds-*) is real.
+    """
+    assert _map_lugs_connection("panel-1-lugs-up", CAPABILITY_CONNECTION, _LUGS_CONNECTION_FULL, {}) == []
+
+
 # ── Dispatch table ────────────────────────────────────────────────────────
 
 
@@ -388,55 +513,94 @@ def test_dispatch_table_includes_distribution_enclosure_info_and_door() -> None:
 
 
 @pytest.fixture
-def panel-a_devices() -> dict[str, Any]:
+def panel_a_devices() -> dict[str, Any]:
     return _load("nt-0000-abc12.json")
 
 
 @pytest.fixture
-def panel-b_devices() -> dict[str, Any]:
+def panel_b_devices() -> dict[str, Any]:
     return _load("nt-0000-def34.json")
 
 
-def test_walk_panel-a_snapshot_produces_enclosure_specs(panel-a_devices: dict[str, Any]) -> None:
-    """Walk the panel-a snapshot end-to-end.
-
-    The panel publishes all 8 enclosure capabilities; lugs/BESS/MID/circuits are
-    still unmapped, so every spec emitted here belongs to the panel root.
-    """
-    specs = entities_from_tree(panel-a_devices)
-
-    panel_id = "nt-0000-abc12"
-    assert all(s.device_id == panel_id for s in specs)
-
-    # Counts per capability against the canonical panel-a snapshot.
-    by_cap: dict[str, int] = {}
+def _by_device_capability(specs: list[EntitySpec]) -> dict[tuple[str, str], int]:
+    """Group spec counts by (device_id, capability) for tabular assertions."""
+    counts: dict[tuple[str, str], int] = {}
     for s in specs:
-        by_cap[s.capability] = by_cap.get(s.capability, 0) + 1
-
-    assert by_cap[CAPABILITY_INFO] == 6              # vendor, model, serial, HW, FW, data-model
-    assert by_cap[CAPABILITY_DOOR] == 1
-    assert by_cap[CAPABILITY_METER] == 2             # l1/l2 voltage
-    assert by_cap[CAPABILITY_STATUS] == 7
-    assert by_cap[CAPABILITY_PCS] == 17              # 4 fixed + import-limit alone + 4 limits × 3
-    assert by_cap[CAPABILITY_POWER_FLOWS] == 4
-    assert by_cap[CAPABILITY_SHED_FORECAST] == 5
-    assert by_cap[CAPABILITY_SHED] == 2
-
-    assert len(specs) == sum(by_cap.values()) == 44
+        key = (s.device_id, s.capability)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
-def test_walk_panel-b_snapshot_panel_root_only(panel-b_devices: dict[str, Any]) -> None:
-    """Walk panel-b (which adds PV vs panel-a).
+def test_walk_panel_a_snapshot_produces_enclosure_and_lugs_specs(panel_a_devices: dict[str, Any]) -> None:
+    """Walk panel_a: panel root + both lugs are now fully mapped.
 
-    All 24 lugs/BESS/MID/PV/EVSE/circuit mappers are still stubs so every spec
-    belongs to the panel root. Same enclosure surface as panel-a (8 capabilities).
+    BESS / MID / circuits remain stubs, so no specs from those devices yet.
     """
-    specs = entities_from_tree(panel-b_devices)
+    specs = entities_from_tree(panel_a_devices)
+    counts = _by_device_capability(specs)
 
-    panel_id = "nt-0000-def34"
-    assert {s.device_id for s in specs} == {panel_id}
-    # Same enclosure capability layout as panel-a → same total spec count.
-    assert len(specs) == 44
+    panel = "nt-0000-abc12"
+    lugs_up = "nt-0000-abc12-lugs-up"
+    lugs_dn = "nt-0000-abc12-lugs-dn"
+
+    # Panel root — 8 enclosure capabilities = 44 specs (see Phase 2.1).
+    assert counts[(panel, CAPABILITY_INFO)] == 6
+    assert counts[(panel, CAPABILITY_DOOR)] == 1
+    assert counts[(panel, CAPABILITY_METER)] == 2
+    assert counts[(panel, CAPABILITY_STATUS)] == 7
+    assert counts[(panel, CAPABILITY_PCS)] == 17
+    assert counts[(panel, CAPABILITY_POWER_FLOWS)] == 4
+    assert counts[(panel, CAPABILITY_SHED_FORECAST)] == 5
+    assert counts[(panel, CAPABILITY_SHED)] == 2
+    panel_total = sum(v for (d, _), v in counts.items() if d == panel)
+    assert panel_total == 44
+
+    # Upstream lugs: info(1) + meter(5) + connection(4 — count + 3 fed-by-*) = 10.
+    assert counts[(lugs_up, CAPABILITY_INFO)] == 1
+    assert counts[(lugs_up, CAPABILITY_METER)] == 5
+    assert counts[(lugs_up, CAPABILITY_CONNECTION)] == 4
+
+    # Downstream lugs: info(1) + meter(5) + connection(4 — count + 3 feeds-*) = 10.
+    assert counts[(lugs_dn, CAPABILITY_INFO)] == 1
+    assert counts[(lugs_dn, CAPABILITY_METER)] == 5
+    assert counts[(lugs_dn, CAPABILITY_CONNECTION)] == 4
+
+    # Only the panel and two lugs are mapped; circuits + BESS + MID still stubs.
+    assert {s.device_id for s in specs} == {panel, lugs_up, lugs_dn}
+    assert len(specs) == 64  # 44 + 10 + 10
+
+
+def test_walk_panel_a_upstream_lugs_use_grid_energy_names(panel_a_devices: dict[str, Any]) -> None:
+    """Upstream lugs use the friendly 'Energy' / 'Energy Returned' names.
+
+    This is the Energy Dashboard wiring source documented in the README.
+    """
+    specs = entities_from_tree(panel_a_devices)
+    up_energy = [
+        s for s in specs
+        if s.device_id == "nt-0000-abc12-lugs-up"
+        and s.capability == CAPABILITY_METER
+        and s.property_id in {"imported-energy", "exported-energy"}
+    ]
+    by_id = {s.property_id: s for s in up_energy}
+    assert by_id["imported-energy"].name == "Energy"
+    assert by_id["exported-energy"].name == "Energy Returned"
+
+
+def test_walk_panel_b_snapshot_panel_and_lugs(panel_b_devices: dict[str, Any]) -> None:
+    """panel_b has the same enclosure + lugs surface as panel_a.
+
+    PV / BESS / MID / circuit mappers are still stubs in this sub-session.
+    """
+    specs = entities_from_tree(panel_b_devices)
+
+    expected_devices = {
+        "nt-0000-def34",
+        "nt-0000-def34-lugs-up",
+        "nt-0000-def34-lugs-dn",
+    }
+    assert {s.device_id for s in specs} == expected_devices
+    assert len(specs) == 64  # 44 panel + 10 lugs-up + 10 lugs-dn
 
 
 def test_walk_empty_tree_returns_empty_list() -> None:
