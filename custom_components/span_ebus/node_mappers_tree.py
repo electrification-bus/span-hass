@@ -652,45 +652,191 @@ def _map_lugs_connection(
 # ─ BESS capabilities ─
 
 
+_INFO_TEXT_FIELDS: dict[str, str] = {
+    "vendor-name": "Vendor",
+    "product-name": "Product",
+    "model": "Model",
+    "serial-number": "Serial Number",
+    "hardware-version": "Hardware Version",
+}
+
+
+def _info_text_table(
+    *include: str,
+    firmware: bool = True,
+) -> dict[str, dict[str, Any]]:
+    """Build a property-mapping table for a device's ``info`` capability.
+
+    Most ``info`` capabilities (panel, BESS, MID, PV, EVSE) share the same
+    shape — vendor / product / model / serial / version strings exposed as
+    diagnostic text sensors. ``include`` selects which fixed text fields go
+    into the table; ``firmware=True`` adds both ``firmware-version`` (spec)
+    and ``software-version`` (legacy) under the same "Firmware Version" label
+    so in-flight firmware renames don't leave the entity floating.
+    """
+    table: dict[str, dict[str, Any]] = {
+        prop_id: {
+            "platform": Platform.SENSOR,
+            "name": _INFO_TEXT_FIELDS[prop_id],
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        }
+        for prop_id in include
+    }
+    if firmware:
+        table["firmware-version"] = {
+            "platform": Platform.SENSOR,
+            "name": "Firmware Version",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        }
+        table["software-version"] = {
+            "platform": Platform.SENSOR,
+            "name": "Firmware Version",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        }
+    return table
+
+
 def _map_bess_info(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — BESS identity (vendor, model, serials, versions, nameplate-capacity)."""
-    return []
+    """BESS identity: vendor, product, model, serial, firmware, nameplate capacity.
+
+    ``nameplate-capacity`` (kWh) is the storage capacity rated by the vendor —
+    static, not a real-time reading, so no state_class. ENERGY_STORAGE device
+    class is HA's idiomatic fit for "this battery holds N kWh".
+    """
+    table = _info_text_table("vendor-name", "product-name", "model", "serial-number", "hardware-version")
+    table["nameplate-capacity"] = {
+        "platform": Platform.SENSOR,
+        "name": "Nameplate Capacity",
+        "device_class": SensorDeviceClass.ENERGY_STORAGE,
+        "native_unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 def _map_bess_soc(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — BESS state-of-charge (%) + state-of-energy (kWh)."""
-    return []
+    """BESS state-of-charge (%) and state-of-energy (kWh).
+
+    Both are MEASUREMENT — instantaneous values that fluctuate up and down as
+    the battery cycles, not cumulative counters. ``soc`` uses HA's BATTERY
+    device class (the canonical "battery percentage" surface) while ``soe``
+    uses ENERGY_STORAGE (the current stored energy in kWh).
+    """
+    table: dict[str, dict[str, Any]] = {
+        "soc": {
+            "platform": Platform.SENSOR,
+            "name": "State of Charge",
+            "device_class": SensorDeviceClass.BATTERY,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": PERCENTAGE,
+        },
+        "soe": {
+            "platform": Platform.SENSOR,
+            "name": "State of Energy",
+            "device_class": SensorDeviceClass.ENERGY_STORAGE,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": UnitOfEnergy.KILO_WATT_HOUR,
+        },
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 # ─ MID grandchild capabilities ─
 
 
 def _map_mid_info(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — MID identity (mostly null on synthesized MIDs)."""
-    return []
+    """MID identity — same six-field text surface as the BESS info capability.
+
+    On a synthesized MID (every commissioned BESS gets one; Tesla Powerwall etc.
+    don't expose a separable MID), most of these fields are null on the wire
+    per spec. The mapper still emits the entities; HA treats null as
+    ``unknown``, which is the right surface.
+    """
+    table = _info_text_table("vendor-name", "product-name", "model", "serial-number", "hardware-version")
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 def _map_mid_grid(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — MID grid state (islanding-state, grid-state, grid-forming-entity)."""
-    return []
+    """MID grid state.
+
+    ``islanding-state`` (ON_GRID / OFF_GRID / UNKNOWN) is the operational
+    indicator of whether the panel is currently grid-tied or islanded.
+    ``grid-state`` (UP / DOWN / DEGRADED / UNKNOWN) is the utility-side health
+    summary. ``grid-forming-entity`` is the device-id of whatever is currently
+    establishing the grid — ``"GRID"`` when grid-tied, the BESS Homie device-id
+    when islanded. All three are text sensors to preserve the full enum value
+    (a PROBLEM binary would collapse DEGRADED into not-OK and lose information).
+    """
+    table: dict[str, dict[str, Any]] = {
+        "islanding-state": {
+            "platform": Platform.SENSOR,
+            "name": "Islanding State",
+            "icon": "mdi:transmission-tower-export",
+        },
+        "grid-state": {
+            "platform": Platform.SENSOR,
+            "name": "Grid State",
+            "icon": "mdi:transmission-tower",
+        },
+        "grid-forming-entity": {
+            "platform": Platform.SENSOR,
+            "name": "Grid Forming Entity",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 # ─ PV capabilities ─
 
 
 def _map_pv_info(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — PV identity (vendor, product, serial, firmware, nameplate-capacity)."""
-    return []
+    """PV identity: vendor, product, serial, firmware, nameplate capacity (W).
+
+    For SPAN G2 deployments where the inverter serial isn't surfaced by the
+    SOLAR_INVERTER cloud shadow, ``serial-number`` may be null on the wire —
+    the entity still publishes (HA treats null as ``unknown``). PV info has
+    no ``model`` or ``hardware-version`` rows on the wire.
+
+    ``nameplate-capacity`` is now declared in the correct unit (W) on the
+    tree-v1 publisher — the firmware bug that affected the legacy data model
+    (declared kW, actual W) has been fixed alongside the data-model migration,
+    so no override is needed here.
+    """
+    table = _info_text_table("vendor-name", "product-name", "serial-number")
+    table["nameplate-capacity"] = {
+        "platform": Platform.SENSOR,
+        "name": "Nameplate Capacity",
+        "device_class": SensorDeviceClass.POWER,
+        "native_unit": UnitOfPower.WATT,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 # ─ EVSE capabilities ─

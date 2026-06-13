@@ -29,18 +29,22 @@ import pytest
 from custom_components.span_ebus.const import (
     CAPABILITY_CONNECTION,
     CAPABILITY_DOOR,
+    CAPABILITY_GRID,
     CAPABILITY_INFO,
     CAPABILITY_METER,
     CAPABILITY_PCS,
     CAPABILITY_POWER_FLOWS,
     CAPABILITY_SHED,
     CAPABILITY_SHED_FORECAST,
+    CAPABILITY_SOC,
     CAPABILITY_STATUS,
     DEVICE_TYPE_DISTRIBUTION_ENCLOSURE,
 )
 from custom_components.span_ebus.node_mappers_tree import (
     CAPABILITY_MAPPERS,
     EntitySpec,
+    _map_bess_info,
+    _map_bess_soc,
     _map_enclosure_door,
     _map_enclosure_info,
     _map_enclosure_meter,
@@ -52,6 +56,9 @@ from custom_components.span_ebus.node_mappers_tree import (
     _map_lugs_connection,
     _map_lugs_info,
     _map_lugs_meter,
+    _map_mid_grid,
+    _map_mid_info,
+    _map_pv_info,
     device_type_short,
     entities_from_tree,
 )
@@ -496,6 +503,163 @@ def test_map_lugs_connection_unknown_direction_emits_nothing() -> None:
     assert _map_lugs_connection("panel-1-lugs-up", CAPABILITY_CONNECTION, _LUGS_CONNECTION_FULL, {}) == []
 
 
+# ── _map_bess_info ────────────────────────────────────────────────────────
+
+
+_BESS_INFO_PROPERTIES_LEGACY_FIRMWARE = {
+    "vendor-name": {"datatype": "string"},
+    "product-name": {"datatype": "string"},
+    "model": {"datatype": "string"},
+    "serial-number": {"datatype": "string"},
+    "software-version": {"datatype": "string"},
+    "nameplate-capacity": {"datatype": "float", "unit": "kWh"},
+}
+
+
+def test_map_bess_info_emits_six_diagnostic_specs_for_legacy_publisher() -> None:
+    """Snapshot fixtures still ship software-version (pre-rename); expect 6 specs."""
+    specs = _map_bess_info("bess-1", CAPABILITY_INFO, _BESS_INFO_PROPERTIES_LEGACY_FIRMWARE, {})
+    assert len(specs) == 6
+    by_id = {s.property_id: s for s in specs}
+    for prop_id in _BESS_INFO_PROPERTIES_LEGACY_FIRMWARE:
+        assert prop_id in by_id
+        assert by_id[prop_id].entity_category == EntityCategory.DIAGNOSTIC
+    # software-version surfaces under the spec-current "Firmware Version" label.
+    assert by_id["software-version"].name == "Firmware Version"
+    cap = by_id["nameplate-capacity"]
+    assert cap.device_class == SensorDeviceClass.ENERGY_STORAGE
+    assert cap.native_unit == UnitOfEnergy.KILO_WATT_HOUR
+    assert cap.state_class is None
+
+
+def test_map_bess_info_picks_up_firmware_version_when_publisher_renames() -> None:
+    specs = _map_bess_info(
+        "bess-1",
+        CAPABILITY_INFO,
+        {"vendor-name": {}, "firmware-version": {}},
+        {},
+    )
+    by_id = {s.property_id: s for s in specs}
+    assert "firmware-version" in by_id
+    assert by_id["firmware-version"].name == "Firmware Version"
+
+
+# ── _map_bess_soc ─────────────────────────────────────────────────────────
+
+
+def test_map_bess_soc_emits_battery_and_energy_storage_measurements() -> None:
+    specs = _map_bess_soc(
+        "bess-1",
+        CAPABILITY_SOC,
+        {
+            "soc": {"datatype": "float", "unit": "%"},
+            "soe": {"datatype": "float", "unit": "kWh"},
+        },
+        {},
+    )
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["soc"].device_class == SensorDeviceClass.BATTERY
+    assert by_id["soc"].native_unit == PERCENTAGE
+    assert by_id["soc"].state_class == SensorStateClass.MEASUREMENT
+    assert by_id["soe"].device_class == SensorDeviceClass.ENERGY_STORAGE
+    assert by_id["soe"].native_unit == UnitOfEnergy.KILO_WATT_HOUR
+    assert by_id["soe"].state_class == SensorStateClass.MEASUREMENT
+
+
+# ── _map_mid_info ─────────────────────────────────────────────────────────
+
+
+def test_map_mid_info_emits_six_diagnostic_specs() -> None:
+    """MID snapshot already uses the spec firmware-version name."""
+    specs = _map_mid_info(
+        "bess-1-mid",
+        CAPABILITY_INFO,
+        {
+            "vendor-name": {},
+            "product-name": {},
+            "model": {},
+            "serial-number": {},
+            "hardware-version": {},
+            "firmware-version": {},
+        },
+        {},
+    )
+    assert len(specs) == 6
+    for s in specs:
+        assert s.entity_category == EntityCategory.DIAGNOSTIC
+
+
+# ── _map_mid_grid ─────────────────────────────────────────────────────────
+
+
+def test_map_mid_grid_islanding_and_grid_state_keep_full_enum_value() -> None:
+    """All three properties emit text sensors.
+
+    DEGRADED (vs DOWN/UNKNOWN) doesn't collapse into a single 'not ok' bit,
+    the way a PROBLEM binary_sensor would.
+    """
+    specs = _map_mid_grid(
+        "bess-1-mid",
+        CAPABILITY_GRID,
+        {
+            "islanding-state": {"datatype": "enum", "format": "ON_GRID,OFF_GRID,UNKNOWN"},
+            "grid-state": {"datatype": "enum", "format": "UP,DOWN,DEGRADED,UNKNOWN"},
+            "grid-forming-entity": {"datatype": "string"},
+        },
+        {},
+    )
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["islanding-state"].platform == Platform.SENSOR
+    assert by_id["grid-state"].platform == Platform.SENSOR
+    assert by_id["grid-forming-entity"].entity_category == EntityCategory.DIAGNOSTIC
+    # islanding-state and grid-state are operational, not diagnostic.
+    assert by_id["islanding-state"].entity_category is None
+    assert by_id["grid-state"].entity_category is None
+
+
+# ── _map_pv_info ──────────────────────────────────────────────────────────
+
+
+def test_map_pv_info_emits_five_specs_with_watts_for_nameplate() -> None:
+    """Tree-v1 publishes nameplate-capacity in watts.
+
+    The legacy kW-but-actually-W firmware bug is fixed in the new model.
+    """
+    specs = _map_pv_info(
+        "pv-1",
+        CAPABILITY_INFO,
+        {
+            "vendor-name": {},
+            "product-name": {},
+            "serial-number": {},
+            "software-version": {},
+            "nameplate-capacity": {"unit": "W"},
+        },
+        {},
+    )
+    assert len(specs) == 5
+    by_id = {s.property_id: s for s in specs}
+    cap = by_id["nameplate-capacity"]
+    assert cap.device_class == SensorDeviceClass.POWER
+    assert cap.native_unit == UnitOfPower.WATT
+
+
+def test_map_pv_info_no_model_or_hardware_version_in_v1() -> None:
+    """PV info has no model / hardware-version rows on the wire.
+
+    If a future firmware adds them the mapper just keeps emitting what's
+    declared elsewhere.
+    """
+    specs = _map_pv_info(
+        "pv-1",
+        CAPABILITY_INFO,
+        {"model": {}, "hardware-version": {}},
+        {},
+    )
+    # Mapper has no row for these keys, so they're silently skipped.
+    assert specs == []
+
+
 # ── Dispatch table ────────────────────────────────────────────────────────
 
 
@@ -531,10 +695,10 @@ def _by_device_capability(specs: list[EntitySpec]) -> dict[tuple[str, str], int]
     return counts
 
 
-def test_walk_panel_a_snapshot_produces_enclosure_and_lugs_specs(panel_a_devices: dict[str, Any]) -> None:
-    """Walk panel_a: panel root + both lugs are now fully mapped.
+def test_walk_panel_a_snapshot_produces_enclosure_lugs_and_bess_specs(panel_a_devices: dict[str, Any]) -> None:
+    """Walk panel_a: panel root + both lugs + BESS + MID are now fully mapped.
 
-    BESS / MID / circuits remain stubs, so no specs from those devices yet.
+    Circuits remain stubs, so no specs from those devices yet.
     """
     specs = entities_from_tree(panel_a_devices)
     counts = _by_device_capability(specs)
@@ -542,6 +706,8 @@ def test_walk_panel_a_snapshot_produces_enclosure_and_lugs_specs(panel_a_devices
     panel = "nt-0000-abc12"
     lugs_up = "nt-0000-abc12-lugs-up"
     lugs_dn = "nt-0000-abc12-lugs-dn"
+    bess = "nt-0000-abc12-bess0001"
+    mid = "nt-0000-abc12-bess0001-mid"
 
     # Panel root — 8 enclosure capabilities = 44 specs (see Phase 2.1).
     assert counts[(panel, CAPABILITY_INFO)] == 6
@@ -552,8 +718,6 @@ def test_walk_panel_a_snapshot_produces_enclosure_and_lugs_specs(panel_a_devices
     assert counts[(panel, CAPABILITY_POWER_FLOWS)] == 4
     assert counts[(panel, CAPABILITY_SHED_FORECAST)] == 5
     assert counts[(panel, CAPABILITY_SHED)] == 2
-    panel_total = sum(v for (d, _), v in counts.items() if d == panel)
-    assert panel_total == 44
 
     # Upstream lugs: info(1) + meter(5) + connection(4 — count + 3 fed-by-*) = 10.
     assert counts[(lugs_up, CAPABILITY_INFO)] == 1
@@ -565,9 +729,17 @@ def test_walk_panel_a_snapshot_produces_enclosure_and_lugs_specs(panel_a_devices
     assert counts[(lugs_dn, CAPABILITY_METER)] == 5
     assert counts[(lugs_dn, CAPABILITY_CONNECTION)] == 4
 
-    # Only the panel and two lugs are mapped; circuits + BESS + MID still stubs.
-    assert {s.device_id for s in specs} == {panel, lugs_up, lugs_dn}
-    assert len(specs) == 64  # 44 + 10 + 10
+    # BESS: info(6 — software-version pre-rename) + soc(2) = 8.
+    assert counts[(bess, CAPABILITY_INFO)] == 6
+    assert counts[(bess, CAPABILITY_SOC)] == 2
+
+    # MID grandchild: info(6) + grid(3) = 9.
+    assert counts[(mid, CAPABILITY_INFO)] == 6
+    assert counts[(mid, CAPABILITY_GRID)] == 3
+
+    # Panel + lugs + BESS + MID; circuits still stubs.
+    assert {s.device_id for s in specs} == {panel, lugs_up, lugs_dn, bess, mid}
+    assert len(specs) == 81  # 44 panel + 10 + 10 lugs + 8 BESS + 9 MID
 
 
 def test_walk_panel_a_upstream_lugs_use_grid_energy_names(panel_a_devices: dict[str, Any]) -> None:
@@ -587,20 +759,33 @@ def test_walk_panel_a_upstream_lugs_use_grid_energy_names(panel_a_devices: dict[
     assert by_id["exported-energy"].name == "Energy Returned"
 
 
-def test_walk_panel_b_snapshot_panel_and_lugs(panel_b_devices: dict[str, Any]) -> None:
-    """panel_b has the same enclosure + lugs surface as panel_a.
+def test_walk_panel_b_snapshot_includes_pv(panel_b_devices: dict[str, Any]) -> None:
+    """panel_b adds a PV child on top of panel_a's surface.
 
-    PV / BESS / MID / circuit mappers are still stubs in this sub-session.
+    Circuit mappers are still stubs.
     """
     specs = entities_from_tree(panel_b_devices)
+    counts = _by_device_capability(specs)
+
+    panel = "nt-0000-def34"
+    bess = "nt-0000-def34-bess0001"
+    mid = "nt-0000-def34-bess0001-mid"
+    pv = "nt-0000-def34-pv0001"
+
+    # PV: info(5) — vendor, product, serial, software-version (pre-rename), nameplate-capacity (W).
+    assert counts[(pv, CAPABILITY_INFO)] == 5
 
     expected_devices = {
-        "nt-0000-def34",
+        panel,
         "nt-0000-def34-lugs-up",
         "nt-0000-def34-lugs-dn",
+        bess,
+        mid,
+        pv,
     }
     assert {s.device_id for s in specs} == expected_devices
-    assert len(specs) == 64  # 44 panel + 10 lugs-up + 10 lugs-dn
+    # 44 panel + 10 + 10 lugs + 8 BESS + 9 MID + 5 PV = 86.
+    assert len(specs) == 86
 
 
 def test_walk_empty_tree_returns_empty_list() -> None:
