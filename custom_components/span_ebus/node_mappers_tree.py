@@ -976,38 +976,286 @@ def _map_evse_config(
 
 
 def _map_circuit_info(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — circuit info (name, breaker-rating, tab-number renamed from space, dipole)."""
-    return []
+    """Circuit info: name (settable), breaker-rating, tab-number, dipole.
+
+    The spec renames the panel-position property from ``space`` to ``tab-number``;
+    snapshots predating the firmware-side rename still publish ``space``. The
+    mapper handles both with a single "Tab Number" label (same in-flight-rename
+    pattern as door/state, info/firmware-version, status/cloud-connection).
+
+    ``name`` is settable per spec (users edit circuit labels in the SPAN app
+    and the panel republishes), but Phase 2 surfaces it as a read-only
+    diagnostic sensor; the HA device's friendly name is the consumer of this
+    value (Phase 3 wires that up via the device-name lookup), so there's no
+    need to expose a settable text-field entity to the HA UI.
+
+    The v1 spec also defines optional ``dedicated`` (3-state), ``tags``, and
+    ``external-ids`` info fields, but the SPAN publisher omits them and the
+    relevant registries aren't shipped yet — not mapped.
+    """
+    table: dict[str, dict[str, Any]] = {
+        "name": {
+            "platform": Platform.SENSOR,
+            "name": "Name",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "breaker-rating": {
+            "platform": Platform.SENSOR,
+            "name": "Breaker Rating",
+            "device_class": SensorDeviceClass.CURRENT,
+            "native_unit": UnitOfElectricCurrent.AMPERE,
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        # Spec name + legacy name for the panel-position property.
+        "tab-number": {
+            "platform": Platform.SENSOR,
+            "name": "Tab Number",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "space": {
+            "platform": Platform.SENSOR,
+            "name": "Tab Number",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "dipole": {
+            "platform": Platform.BINARY_SENSOR,
+            "name": "Dipole",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 def _map_circuit_meter(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — circuit meter (current, active-power with negate+W override, energies)."""
-    return []
+    """Circuit meter: current (A), power (W with sign-flip), energies (Wh, total_increasing).
+
+    ``active-power``: the firmware bug that declared kW-but-published-W on the
+    legacy data model appears to be fixed in tree-v1 (publishers now declare
+    W). The mapper hardcodes W regardless of what the description says, so a
+    panel that hasn't taken the fix still surfaces correctly. ``negate=True``
+    flips the sign so positive = consumption (matching HA's
+    device_consumption convention in the Energy Dashboard Now-tab Sankey).
+
+    ``imported-energy`` / ``exported-energy``: SPAN's panel-perspective
+    convention — ``exported-energy`` is energy delivered TO the circuit
+    (= consumption from a load circuit's POV, the dominant counter), and
+    ``imported-energy`` is energy flowing BACK from the circuit (= backfeed,
+    typically near zero unless the circuit feeds a PV inverter). Named in
+    user-friendly terms per the README (and the legacy mapper).
+    Monotonicity workaround still required per [AN-001](appnote-AN001-energy-counter-monotonicity.md).
+    """
+    table: dict[str, dict[str, Any]] = {
+        "current": {
+            "platform": Platform.SENSOR,
+            "name": "Current",
+            "device_class": SensorDeviceClass.CURRENT,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": UnitOfElectricCurrent.AMPERE,
+        },
+        "active-power": {
+            "platform": Platform.SENSOR,
+            "name": "Power",
+            "device_class": SensorDeviceClass.POWER,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": UnitOfPower.WATT,
+            "negate": True,
+        },
+        "imported-energy": {
+            "platform": Platform.SENSOR,
+            "name": "Energy Returned",
+            "device_class": SensorDeviceClass.ENERGY,
+            "state_class": SensorStateClass.TOTAL_INCREASING,
+            "native_unit": UnitOfEnergy.WATT_HOUR,
+        },
+        "exported-energy": {
+            "platform": Platform.SENSOR,
+            "name": "Energy",
+            "device_class": SensorDeviceClass.ENERGY,
+            "state_class": SensorStateClass.TOTAL_INCREASING,
+            "native_unit": UnitOfEnergy.WATT_HOUR,
+        },
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 def _map_circuit_switch(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — circuit relay (settable, gated on priority/relay-controllable) + relay-requester."""
-    return []
+    """Circuit switch: relay (settable, gated) + relay-requester (enum sensor).
+
+    ``relay`` is a settable enum (UNKNOWN / OPEN / CLOSED) — surfaced as
+    Platform.SWITCH. Per spec the publisher gates ``$settable`` at runtime
+    based on ``priority/relay-controllable``; Phase 2 reads that value from
+    the device's loaded properties (``device_data["properties"]``) to decide
+    whether the spec carries ``settable=True``. When the property hasn't been
+    observed yet (e.g. descriptor constructed before the broker delivered
+    values), default to settable=True — the publisher will refuse the write
+    if relay-controllable is false, which is the spec-correct fallback.
+    Future re-gating on property-change is a Phase 3+ enhancement.
+
+    ``relay-requester`` is a read-only enum showing who last requested the
+    current relay state (NONE / USER / LOAD_SHED / PCS / CONFIGURATION /
+    FAULT / UNKNOWN — per the realigned BranchRequester domain). Surfaced
+    as a text sensor so the full enum value reads through.
+    """
+    specs: list[EntitySpec] = []
+    if "relay" in properties:
+        # Look up relay-controllable from current values; default True when unknown.
+        relay_controllable = device_data.get("properties", {}).get(
+            "priority/relay-controllable", True
+        )
+        settable = bool(relay_controllable) if relay_controllable is not None else True
+        specs.append(
+            EntitySpec(
+                device_id=device_id,
+                capability=capability,
+                property_id="relay",
+                platform=Platform.SWITCH,
+                name="Relay",
+                icon="mdi:electric-switch",
+                settable=settable,
+            )
+        )
+    if "relay-requester" in properties:
+        specs.append(
+            EntitySpec(
+                device_id=device_id,
+                capability=capability,
+                property_id="relay-requester",
+                platform=Platform.SENSOR,
+                name="Relay Requester",
+                entity_category=EntityCategory.DIAGNOSTIC,
+            )
+        )
+    return specs
 
 
 def _map_circuit_priority(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — circuit shed-priority (settable), pcs-managed, pcs-priority, relay-controllable."""
-    return []
+    """Circuit priority: shed-priority (settable, gated) + pcs-* + relay-controllable.
+
+    ``shed-priority`` is the user-facing shed-priority select (UNKNOWN /
+    OFF_GRID / SOC_THRESHOLD / NEVER). Per spec the publisher gates
+    ``$settable`` per-circuit — false when a circuit is commissioned as
+    permanent OFF_GRID — so the mapper reads ``shed-priority-settable`` (an
+    internal-only sibling property the publisher derives) from
+    ``device_data["properties"]`` when available; default settable=True when
+    unknown.
+
+    ``pcs-managed`` (boolean diagnostic), ``pcs-priority`` (integer
+    diagnostic), and ``relay-controllable`` (boolean diagnostic — the
+    polarity-flipped successor to the legacy ``alwaysOn`` field; True means
+    the relay can be commanded, False means it's locked open or closed by
+    configuration) round out the capability.
+    """
+    specs: list[EntitySpec] = []
+    if "shed-priority" in properties:
+        # The publisher's "shed-priority-settable" is internal-only (not in
+        # $description); when it's present in property values, honour it.
+        shed_settable = device_data.get("properties", {}).get(
+            "priority/shed-priority-settable", True
+        )
+        options = _parse_enum_format(properties["shed-priority"].get("format", ""))
+        specs.append(
+            EntitySpec(
+                device_id=device_id,
+                capability=capability,
+                property_id="shed-priority",
+                platform=Platform.SELECT,
+                name="Shed Priority",
+                icon="mdi:priority-high",
+                settable=bool(shed_settable) if shed_settable is not None else True,
+                options=options,
+            )
+        )
+    table: dict[str, dict[str, Any]] = {
+        "pcs-managed": {
+            "platform": Platform.BINARY_SENSOR,
+            "name": "PCS Managed",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "pcs-priority": {
+            "platform": Platform.SENSOR,
+            "name": "PCS Priority",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "relay-controllable": {
+            "platform": Platform.BINARY_SENSOR,
+            "name": "Relay Controllable",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+    }
+    specs.extend(_emit_from_table(device_id, capability, properties, table))
+    return specs
 
 
 def _map_circuit_connection(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — circuit connection (feeds-device-id/-type/-status, count)."""
-    return []
+    """Circuit connection: who this circuit feeds (PV, IN_PANEL BESS, EVSE).
+
+    Populated only on circuits commissioned as feeding a specific DER. The
+    ``feeds-device-status`` enum (OK / LOST / DEGRADED) is the replacement
+    for the retired ``bess/connected`` boolean for the IN_PANEL case — same
+    PROBLEM-binary treatment as lugs/connection so a not-OK state surfaces
+    as an actionable HA indicator.
+
+    Other circuits (the vast majority — kitchen, server rack, lighting)
+    publish the capability with null values across the board; the descriptor
+    still creates the entities and HA renders them as ``unknown``.
+    """
+    table: dict[str, dict[str, Any]] = {
+        "feeds-device-id": {
+            "platform": Platform.SENSOR,
+            "name": "Feeds Device",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "feeds-device-type": {
+            "platform": Platform.SENSOR,
+            "name": "Feeds Device Type",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "feeds-device-status": {
+            "platform": Platform.BINARY_SENSOR,
+            "name": "Feeds Connection Problem",
+            "device_class": BinarySensorDeviceClass.PROBLEM,
+            "on_values": {"LOST", "DEGRADED"},
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "count": {
+            "platform": Platform.SENSOR,
+            "name": "Feeds Count",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+    }
+    return _emit_from_table(device_id, capability, properties, table)
+
+
+def _parse_enum_format(fmt: str) -> list[str]:
+    """Split a Homie enum $format string ('A,B,C') into a clean list."""
+    if not fmt:
+        return []
+    return [v.strip() for v in fmt.split(",") if v.strip()]
 
 
 # ── Dispatcher ────────────────────────────────────────────────────────────

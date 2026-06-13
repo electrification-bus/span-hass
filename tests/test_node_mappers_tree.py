@@ -35,6 +35,7 @@ from custom_components.span_ebus.const import (
     CAPABILITY_METER,
     CAPABILITY_PCS,
     CAPABILITY_POWER_FLOWS,
+    CAPABILITY_PRIORITY,
     CAPABILITY_SHED,
     CAPABILITY_SHED_FORECAST,
     CAPABILITY_SOC,
@@ -47,6 +48,11 @@ from custom_components.span_ebus.node_mappers_tree import (
     EntitySpec,
     _map_bess_info,
     _map_bess_soc,
+    _map_circuit_connection,
+    _map_circuit_info,
+    _map_circuit_meter,
+    _map_circuit_priority,
+    _map_circuit_switch,
     _map_enclosure_door,
     _map_enclosure_info,
     _map_enclosure_meter,
@@ -66,6 +72,7 @@ from custom_components.span_ebus.node_mappers_tree import (
     _map_mid_grid,
     _map_mid_info,
     _map_pv_info,
+    _parse_enum_format,
     device_type_short,
     entities_from_tree,
 )
@@ -765,6 +772,206 @@ def test_map_evse_config_emits_two_current_sensors() -> None:
         assert s.entity_category == EntityCategory.DIAGNOSTIC
 
 
+# ── _map_circuit_info ─────────────────────────────────────────────────────
+
+
+def test_map_circuit_info_maps_legacy_space_under_tab_number_name() -> None:
+    """Snapshot fixtures still publish ``space`` (pre-rename); surface as Tab Number."""
+    specs = _map_circuit_info(
+        "circ-1",
+        CAPABILITY_INFO,
+        {
+            "name": {"datatype": "string"},
+            "breaker-rating": {"datatype": "integer", "unit": "A"},
+            "space": {"datatype": "integer"},
+            "dipole": {"datatype": "boolean"},
+        },
+        {},
+    )
+    by_id = {s.property_id: s for s in specs}
+    assert by_id["space"].name == "Tab Number"
+    assert by_id["breaker-rating"].device_class == SensorDeviceClass.CURRENT
+    assert by_id["dipole"].platform == Platform.BINARY_SENSOR
+    assert by_id["name"].entity_category == EntityCategory.DIAGNOSTIC
+
+
+def test_map_circuit_info_picks_up_tab_number_after_rename() -> None:
+    specs = _map_circuit_info(
+        "circ-1", CAPABILITY_INFO, {"tab-number": {"datatype": "integer"}}, {}
+    )
+    assert len(specs) == 1
+    assert specs[0].name == "Tab Number"
+
+
+# ── _map_circuit_meter ────────────────────────────────────────────────────
+
+
+_CIRCUIT_METER_PROPERTIES = {
+    "current": {"unit": "A"},
+    "active-power": {"unit": "W"},
+    "imported-energy": {"unit": "Wh"},
+    "exported-energy": {"unit": "Wh"},
+}
+
+
+def test_map_circuit_meter_emits_four_specs() -> None:
+    specs = _map_circuit_meter("circ-1", CAPABILITY_METER, _CIRCUIT_METER_PROPERTIES, {})
+    assert len(specs) == 4
+    by_id = {s.property_id: s for s in specs}
+    # Power is W with sign-flip to match HA's positive-consumption convention.
+    assert by_id["active-power"].native_unit == UnitOfPower.WATT
+    assert by_id["active-power"].negate is True
+    # SPAN's panel-perspective: exported-energy = consumption ("Energy", dominant counter);
+    # imported-energy = backfeed ("Energy Returned", typically ~0 on a load circuit).
+    assert by_id["exported-energy"].name == "Energy"
+    assert by_id["imported-energy"].name == "Energy Returned"
+    # Both energies are TOTAL_INCREASING (monotonicity workaround per AN-001 lives
+    # at a layer below the mapper).
+    for prop_id in ("imported-energy", "exported-energy"):
+        s = by_id[prop_id]
+        assert s.device_class == SensorDeviceClass.ENERGY
+        assert s.state_class == SensorStateClass.TOTAL_INCREASING
+        assert s.native_unit == UnitOfEnergy.WATT_HOUR
+
+
+# ── _map_circuit_switch ───────────────────────────────────────────────────
+
+
+def test_map_circuit_switch_relay_is_settable_when_relay_controllable_true() -> None:
+    specs = _map_circuit_switch(
+        "circ-1",
+        CAPABILITY_SWITCH,
+        {"relay": {"datatype": "enum", "format": "UNKNOWN,OPEN,CLOSED", "settable": True}},
+        {"properties": {"priority/relay-controllable": True}},
+    )
+    relay = next(s for s in specs if s.property_id == "relay")
+    assert relay.platform == Platform.SWITCH
+    assert relay.settable is True
+
+
+def test_map_circuit_switch_relay_locked_when_relay_controllable_false() -> None:
+    """A non-controllable circuit surfaces relay as a non-settable switch.
+
+    Always-on / always-off circuits have relay-controllable=False; the spec
+    gates $settable accordingly and the entity should match.
+    """
+    specs = _map_circuit_switch(
+        "circ-1",
+        CAPABILITY_SWITCH,
+        {"relay": {"datatype": "enum", "format": "UNKNOWN,OPEN,CLOSED"}},
+        {"properties": {"priority/relay-controllable": False}},
+    )
+    relay = next(s for s in specs if s.property_id == "relay")
+    assert relay.settable is False
+
+
+def test_map_circuit_switch_relay_defaults_settable_when_unknown() -> None:
+    """Unknown relay-controllable defaults to settable=True.
+
+    The publisher will refuse out-of-condition writes anyway, so this is safe.
+    """
+    specs = _map_circuit_switch(
+        "circ-1",
+        CAPABILITY_SWITCH,
+        {"relay": {"datatype": "enum", "format": "UNKNOWN,OPEN,CLOSED"}},
+        {},
+    )
+    relay = next(s for s in specs if s.property_id == "relay")
+    assert relay.settable is True
+
+
+def test_map_circuit_switch_relay_requester_is_diagnostic_text() -> None:
+    specs = _map_circuit_switch(
+        "circ-1",
+        CAPABILITY_SWITCH,
+        {"relay-requester": {"datatype": "enum", "format": "USER,LOAD_SHED,PCS,FAULT"}},
+        {},
+    )
+    assert len(specs) == 1
+    assert specs[0].platform == Platform.SENSOR
+    assert specs[0].entity_category == EntityCategory.DIAGNOSTIC
+
+
+# ── _map_circuit_priority ─────────────────────────────────────────────────
+
+
+_CIRCUIT_PRIORITY_PROPERTIES = {
+    "shed-priority": {
+        "datatype": "enum",
+        "format": "UNKNOWN,OFF_GRID,SOC_THRESHOLD,NEVER",
+        "settable": True,
+    },
+    "pcs-managed": {"datatype": "boolean"},
+    "pcs-priority": {"datatype": "integer"},
+    "relay-controllable": {"datatype": "boolean"},
+}
+
+
+def test_map_circuit_priority_emits_four_specs() -> None:
+    specs = _map_circuit_priority(
+        "circ-1", CAPABILITY_PRIORITY, _CIRCUIT_PRIORITY_PROPERTIES, {}
+    )
+    assert len(specs) == 4
+    by_id = {s.property_id: s for s in specs}
+    shed = by_id["shed-priority"]
+    assert shed.platform == Platform.SELECT
+    assert shed.settable is True
+    assert shed.options == ["UNKNOWN", "OFF_GRID", "SOC_THRESHOLD", "NEVER"]
+    assert by_id["pcs-managed"].platform == Platform.BINARY_SENSOR
+    assert by_id["pcs-priority"].entity_category == EntityCategory.DIAGNOSTIC
+    assert by_id["relay-controllable"].platform == Platform.BINARY_SENSOR
+
+
+def test_map_circuit_priority_shed_priority_locked_when_internal_flag_false() -> None:
+    """Publisher-derived shed-priority-settable=False surfaces as a non-settable select.
+
+    Indicates the circuit is commissioned as permanent OFF_GRID.
+    """
+    specs = _map_circuit_priority(
+        "circ-1",
+        CAPABILITY_PRIORITY,
+        _CIRCUIT_PRIORITY_PROPERTIES,
+        {"properties": {"priority/shed-priority-settable": False}},
+    )
+    shed = next(s for s in specs if s.property_id == "shed-priority")
+    assert shed.settable is False
+
+
+# ── _map_circuit_connection ───────────────────────────────────────────────
+
+
+def test_map_circuit_connection_feeds_status_is_problem_binary() -> None:
+    specs = _map_circuit_connection(
+        "circ-1",
+        CAPABILITY_CONNECTION,
+        {
+            "feeds-device-id": {"datatype": "string"},
+            "feeds-device-type": {"datatype": "string"},
+            "feeds-device-status": {"datatype": "enum", "format": "OK,LOST,DEGRADED"},
+            "count": {"datatype": "integer"},
+        },
+        {},
+    )
+    by_id = {s.property_id: s for s in specs}
+    status = by_id["feeds-device-status"]
+    assert status.platform == Platform.BINARY_SENSOR
+    assert status.device_class == BinarySensorDeviceClass.PROBLEM
+    assert status.on_values == {"LOST", "DEGRADED"}
+    # Non-status feeds are surfaced as diagnostic text sensors.
+    for prop_id in ("feeds-device-id", "feeds-device-type", "count"):
+        assert by_id[prop_id].platform == Platform.SENSOR
+        assert by_id[prop_id].entity_category == EntityCategory.DIAGNOSTIC
+
+
+# ── _parse_enum_format ────────────────────────────────────────────────────
+
+
+def test_parse_enum_format_splits_and_strips() -> None:
+    assert _parse_enum_format("A,B, C ,D") == ["A", "B", "C", "D"]
+    assert _parse_enum_format("") == []
+    assert _parse_enum_format("A,,B") == ["A", "B"]
+
+
 # ── Dispatch table ────────────────────────────────────────────────────────
 
 
@@ -800,10 +1007,11 @@ def _by_device_capability(specs: list[EntitySpec]) -> dict[tuple[str, str], int]
     return counts
 
 
-def test_walk_panel_a_snapshot_produces_enclosure_lugs_and_bess_specs(panel_a_devices: dict[str, Any]) -> None:
-    """Walk panel_a: panel root + both lugs + BESS + MID are now fully mapped.
+def test_walk_panel_a_snapshot_produces_full_entity_set(panel_a_devices: dict[str, Any]) -> None:
+    """Walk panel_a end-to-end with all 26 mappers implemented.
 
-    Circuits remain stubs, so no specs from those devices yet.
+    panel_a has 11 circuits; each contributes 18 specs (info 4 + meter 4 +
+    switch 2 + priority 4 + connection 4). Total = 81 (non-circuit) + 198 = 279.
     """
     specs = entities_from_tree(panel_a_devices)
     counts = _by_device_capability(specs)
@@ -842,9 +1050,21 @@ def test_walk_panel_a_snapshot_produces_enclosure_lugs_and_bess_specs(panel_a_de
     assert counts[(mid, CAPABILITY_INFO)] == 6
     assert counts[(mid, CAPABILITY_GRID)] == 3
 
-    # Panel + lugs + BESS + MID; circuits still stubs.
-    assert {s.device_id for s in specs} == {panel, lugs_up, lugs_dn, bess, mid}
-    assert len(specs) == 81  # 44 panel + 10 + 10 lugs + 8 BESS + 9 MID
+    # Circuits: 11 × 18 specs each = 198.
+    circuit_devices = {
+        did for did, dev in panel_a_devices.items()
+        if dev["description"].get("type") == "energy.ebus.device.circuit"
+    }
+    assert len(circuit_devices) == 11
+    for cid in circuit_devices:
+        assert counts[(cid, CAPABILITY_INFO)] == 4
+        assert counts[(cid, CAPABILITY_METER)] == 4
+        assert counts[(cid, CAPABILITY_SWITCH)] == 2
+        assert counts[(cid, CAPABILITY_PRIORITY)] == 4
+        assert counts[(cid, CAPABILITY_CONNECTION)] == 4
+
+    assert {s.device_id for s in specs} == {panel, lugs_up, lugs_dn, bess, mid} | circuit_devices
+    assert len(specs) == 279  # 44 panel + 10 + 10 lugs + 8 BESS + 9 MID + 11 × 18 circuits
 
 
 def test_walk_panel_a_upstream_lugs_use_grid_energy_names(panel_a_devices: dict[str, Any]) -> None:
@@ -864,33 +1084,36 @@ def test_walk_panel_a_upstream_lugs_use_grid_energy_names(panel_a_devices: dict[
     assert by_id["exported-energy"].name == "Energy Returned"
 
 
-def test_walk_panel_b_snapshot_includes_pv(panel_b_devices: dict[str, Any]) -> None:
-    """panel_b adds a PV child on top of panel_a's surface.
+def test_walk_panel_b_snapshot_includes_pv_and_more_circuits(panel_b_devices: dict[str, Any]) -> None:
+    """panel_b adds PV and 19 circuits on top of panel_a's surface.
 
-    Circuit mappers are still stubs.
+    Spec totals: 86 (non-circuit, including PV) + 19 × 18 = 86 + 342 = 428.
     """
     specs = entities_from_tree(panel_b_devices)
     counts = _by_device_capability(specs)
 
     panel = "nt-0000-def34"
-    bess = "nt-0000-def34-bess0001"
-    mid = "nt-0000-def34-bess0001-mid"
     pv = "nt-0000-def34-pv0001"
 
     # PV: info(5) — vendor, product, serial, software-version (pre-rename), nameplate-capacity (W).
     assert counts[(pv, CAPABILITY_INFO)] == 5
 
-    expected_devices = {
+    circuit_devices = {
+        did for did, dev in panel_b_devices.items()
+        if dev["description"].get("type") == "energy.ebus.device.circuit"
+    }
+    assert len(circuit_devices) == 19
+
+    non_circuit = {
         panel,
         "nt-0000-def34-lugs-up",
         "nt-0000-def34-lugs-dn",
-        bess,
-        mid,
+        "nt-0000-def34-bess0001",
+        "nt-0000-def34-bess0001-mid",
         pv,
     }
-    assert {s.device_id for s in specs} == expected_devices
-    # 44 panel + 10 + 10 lugs + 8 BESS + 9 MID + 5 PV = 86.
-    assert len(specs) == 86
+    assert {s.device_id for s in specs} == non_circuit | circuit_devices
+    assert len(specs) == 428
 
 
 def test_walk_empty_tree_returns_empty_list() -> None:
