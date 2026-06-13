@@ -315,6 +315,14 @@ poetry run ruff check custom_components/span_ebus/
 - [ebus-sdk](https://pypi.org/project/ebus-sdk/) — MQTT client for the SPAN eBus/Homie protocol
 - Home Assistant core (dev dependency for testing)
 
+## Releases
+
+See [CHANGELOG.md](CHANGELOG.md). The integration is in early alpha — entity unique-IDs and the config-flow shape are intended to be stable, but expect entity additions and refinements as more SPAN deployments come online.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to file Discussions, Issues, and pull requests. Changes to MQTT transport, Homie discovery, or device-tree semantics belong in [`ebus-sdk`](https://github.com/electrification-bus/python-sdk) rather than here — this repo is the Home Assistant adapter layer on top. Normative behavior tracks the [Electrification Bus specification](https://github.com/electrification-bus/specification).
+
 ## License
 
 [MIT](LICENSE)
