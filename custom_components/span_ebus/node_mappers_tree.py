@@ -23,8 +23,16 @@ import logging
 from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
-from homeassistant.components.sensor import SensorStateClass
-from homeassistant.const import EntityCategory, Platform
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    Platform,
+    UnitOfElectricCurrent,
+    UnitOfElectricPotential,
+    UnitOfPower,
+    UnitOfTime,
+)
 
 from .const import (
     CAPABILITY_CONFIG,
@@ -180,46 +188,279 @@ def _map_enclosure_door(
     ]
 
 
-def _map_enclosure_meter(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+def _emit_from_table(
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    table: dict[str, dict[str, Any]],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — panel-level voltages (l1/l2) + lug-mirrored energies (skip mirrors)."""
-    return []
+    """Emit one EntitySpec per declared property that has a row in ``table``.
+
+    Each row's dict is passed as kwargs to EntitySpec. Properties not in the
+    description are skipped (forward-compatible with publishers that ship a
+    subset of the spec).
+    """
+    specs: list[EntitySpec] = []
+    for prop_id, meta in table.items():
+        if prop_id not in properties:
+            continue
+        specs.append(
+            EntitySpec(
+                device_id=device_id,
+                capability=capability,
+                property_id=prop_id,
+                **meta,
+            )
+        )
+    return specs
+
+
+def _map_enclosure_meter(
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
+) -> list[EntitySpec]:
+    """Panel-level voltages.
+
+    The spec also lists mirrored l1/l2 currents, active-power, and imported/
+    exported energies on this capability for parity with lugs, but SPAN flags
+    them ``internal-only`` and does not publish them — those entities already
+    exist on the upstream-lugs child device. The mapper does not emit
+    duplicates even if a future firmware decides to publish the mirrors.
+    """
+    table: dict[str, dict[str, Any]] = {
+        "l1-voltage": {
+            "platform": Platform.SENSOR,
+            "name": "L1 Voltage",
+            "device_class": SensorDeviceClass.VOLTAGE,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": UnitOfElectricPotential.VOLT,
+        },
+        "l2-voltage": {
+            "platform": Platform.SENSOR,
+            "name": "L2 Voltage",
+            "device_class": SensorDeviceClass.VOLTAGE,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": UnitOfElectricPotential.VOLT,
+        },
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 def _map_enclosure_status(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — network/cloud/relay status (was core/{ethernet,wifi,...})."""
-    return []
+    """Network connectivity, cloud connection, main relay, location metadata."""
+    table: dict[str, dict[str, Any]] = {
+        # Main relay (was core/relay): enum UNKNOWN/OPEN/CLOSED; surfaces as a
+        # binary sensor where ``CLOSED`` means "on" (relay engaged).
+        "relay": {
+            "platform": Platform.BINARY_SENSOR,
+            "name": "Main Relay",
+            "icon": "mdi:electric-switch",
+            "on_values": {"CLOSED"},
+        },
+        "ethernet": {
+            "platform": Platform.BINARY_SENSOR,
+            "name": "Ethernet",
+            "device_class": BinarySensorDeviceClass.CONNECTIVITY,
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "wifi": {
+            "platform": Platform.BINARY_SENSOR,
+            "name": "Wi-Fi",
+            "device_class": BinarySensorDeviceClass.CONNECTIVITY,
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "wifi-ssid": {
+            "platform": Platform.SENSOR,
+            "name": "Wi-Fi SSID",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        # Spec renames vendor-cloud → cloud-connection alongside the move into
+        # the status capability; legacy snapshots still publish the old id.
+        # Declaring both with identical metadata means whichever the firmware
+        # publishes, we surface one "Cloud Connection" sensor under the same
+        # name (different unique_ids, but the firmware never publishes both).
+        "cloud-connection": {
+            "platform": Platform.SENSOR,
+            "name": "Cloud Connection",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "vendor-cloud": {
+            "platform": Platform.SENSOR,
+            "name": "Cloud Connection",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "postal-code": {
+            "platform": Platform.SENSOR,
+            "name": "Postal Code",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "time-zone": {
+            "platform": Platform.SENSOR,
+            "name": "Time Zone",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 def _map_enclosure_pcs(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — Power Control System (grid-islandable, breaker-rating, limits)."""
-    return []
+    """Power Control System capability.
+
+    Carries the 5 SPAN current-limit families (import, feed-import, grid-import,
+    off-grid-import, requested-import) plus their enablement enums and active
+    booleans, plus ``enabled``/``active`` master flags, plus the relocated
+    ``grid-islandable`` and ``breaker-rating`` from the old core node.
+    """
+    limit_kinds = (
+        "import-limit",
+        "feed-import-limit",
+        "grid-import-limit",
+        "off-grid-import-limit",
+        "requested-import-limit",
+    )
+    table: dict[str, dict[str, Any]] = {
+        "enabled": {
+            "platform": Platform.BINARY_SENSOR,
+            "name": "PCS Enabled",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "active": {
+            "platform": Platform.BINARY_SENSOR,
+            "name": "PCS Active",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "grid-islandable": {
+            "platform": Platform.BINARY_SENSOR,
+            "name": "Grid Islandable",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+        "breaker-rating": {
+            "platform": Platform.SENSOR,
+            "name": "Main Breaker Rating",
+            "device_class": SensorDeviceClass.CURRENT,
+            "native_unit": UnitOfElectricCurrent.AMPERE,
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+    }
+    for limit in limit_kinds:
+        pretty = limit.replace("-", " ").title()
+        table[limit] = {
+            "platform": Platform.SENSOR,
+            "name": pretty,
+            "device_class": SensorDeviceClass.CURRENT,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": UnitOfElectricCurrent.AMPERE,
+        }
+        table[f"{limit}-enablement"] = {
+            "platform": Platform.SENSOR,
+            "name": f"{pretty} Enablement",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        }
+        table[f"{limit}-active"] = {
+            "platform": Platform.BINARY_SENSOR,
+            "name": f"{pretty} Active",
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 def _map_enclosure_power_flows(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — panel directional flow totals (pv/battery/grid/site)."""
-    return []
+    """Panel-level directional power totals (pv / battery / grid / site)."""
+    labels = {"pv": "PV", "battery": "Battery", "grid": "Grid", "site": "Site"}
+    table: dict[str, dict[str, Any]] = {
+        prop_id: {
+            "platform": Platform.SENSOR,
+            "name": f"{label} Power",
+            "device_class": SensorDeviceClass.POWER,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": UnitOfPower.WATT,
+        }
+        for prop_id, label in labels.items()
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 def _map_enclosure_shed_forecast(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — net-new shed-forecast capability (BTR time-remaining + confidence)."""
-    return []
+    """SPAN BTR forecast — net-new capability, present only when ≥1 BESS commissioned.
+
+    Four duration sensors (current load + full-charge variants of each) plus a
+    confidence enum sensor.
+    """
+    time_props = {
+        "total-time-remaining": "Battery Time Remaining",
+        "time-to-priority-shed": "Time to Priority Shed",
+        "full-charge-total-time-remaining": "Battery Time Remaining at Full Charge",
+        "full-charge-time-to-priority-shed": "Time to Priority Shed at Full Charge",
+    }
+    table: dict[str, dict[str, Any]] = {
+        prop_id: {
+            "platform": Platform.SENSOR,
+            "name": label,
+            "device_class": SensorDeviceClass.DURATION,
+            "state_class": SensorStateClass.MEASUREMENT,
+            "native_unit": UnitOfTime.MINUTES,
+        }
+        for prop_id, label in time_props.items()
+    }
+    table["confidence"] = {
+        "platform": Platform.SENSOR,
+        "name": "Shed Forecast Confidence",
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 def _map_enclosure_shed(
-    device_id: str, capability: str, properties: dict[str, Any], device_data: dict[str, Any]
+    device_id: str,
+    capability: str,
+    properties: dict[str, Any],
+    device_data: dict[str, Any],
 ) -> list[EntitySpec]:
-    """TODO Phase 2 — net-new shed capability (override switch, soc-threshold)."""
-    return []
+    """SPAN shed control — net-new capability, present only when ≥1 BESS commissioned.
+
+    ``override`` is a settable boolean that replaces the settable half of the
+    retired ``core/dominant-power-source``; the firmware silently ignores
+    out-of-condition writes (accepts true only when islanding-state=OFF_GRID
+    AND the BESS comm is LOST/DEGRADED; accepts false always).
+    """
+    table: dict[str, dict[str, Any]] = {
+        "override": {
+            "platform": Platform.SWITCH,
+            "name": "Shed Override",
+            "icon": "mdi:flash-off",
+            "settable": True,
+        },
+        "soc-threshold": {
+            "platform": Platform.SENSOR,
+            "name": "Shed SOC Threshold",
+            "device_class": SensorDeviceClass.BATTERY,
+            "native_unit": PERCENTAGE,
+            "entity_category": EntityCategory.DIAGNOSTIC,
+        },
+    }
+    return _emit_from_table(device_id, capability, properties, table)
 
 
 # ─ Lugs (upstream + downstream) capabilities ─

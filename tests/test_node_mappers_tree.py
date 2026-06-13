@@ -13,12 +13,27 @@ from pathlib import Path
 from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
-from homeassistant.const import EntityCategory, Platform
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    Platform,
+    UnitOfElectricCurrent,
+    UnitOfElectricPotential,
+    UnitOfPower,
+    UnitOfTime,
+)
 import pytest
 
 from custom_components.span_ebus.const import (
     CAPABILITY_DOOR,
     CAPABILITY_INFO,
+    CAPABILITY_METER,
+    CAPABILITY_PCS,
+    CAPABILITY_POWER_FLOWS,
+    CAPABILITY_SHED,
+    CAPABILITY_SHED_FORECAST,
+    CAPABILITY_STATUS,
     DEVICE_TYPE_DISTRIBUTION_ENCLOSURE,
 )
 from custom_components.span_ebus.node_mappers_tree import (
@@ -26,6 +41,12 @@ from custom_components.span_ebus.node_mappers_tree import (
     EntitySpec,
     _map_enclosure_door,
     _map_enclosure_info,
+    _map_enclosure_meter,
+    _map_enclosure_pcs,
+    _map_enclosure_power_flows,
+    _map_enclosure_shed,
+    _map_enclosure_shed_forecast,
+    _map_enclosure_status,
     device_type_short,
     entities_from_tree,
 )
@@ -148,6 +169,208 @@ def test_map_enclosure_door_emits_nothing_when_absent() -> None:
     assert _map_enclosure_door("nt-test-abc12", CAPABILITY_DOOR, {}, {}) == []
 
 
+# ── _map_enclosure_meter ──────────────────────────────────────────────────
+
+
+def test_map_enclosure_meter_emits_l1_l2_voltage() -> None:
+    specs = _map_enclosure_meter(
+        "panel-1",
+        CAPABILITY_METER,
+        {
+            "l1-voltage": {"datatype": "float", "unit": "V"},
+            "l2-voltage": {"datatype": "float", "unit": "V"},
+        },
+        {},
+    )
+    assert len(specs) == 2
+    for spec in specs:
+        assert spec.platform == Platform.SENSOR
+        assert spec.device_class == SensorDeviceClass.VOLTAGE
+        assert spec.state_class == SensorStateClass.MEASUREMENT
+        assert spec.native_unit == UnitOfElectricPotential.VOLT
+
+
+def test_map_enclosure_meter_ignores_internal_mirrors() -> None:
+    """l1-current etc. live on lugs; if a future firmware mirrors them, do not duplicate."""
+    specs = _map_enclosure_meter(
+        "panel-1",
+        CAPABILITY_METER,
+        {"l1-current": {}, "active-power": {}, "imported-energy": {}},
+        {},
+    )
+    assert specs == []
+
+
+# ── _map_enclosure_status ─────────────────────────────────────────────────
+
+
+def test_map_enclosure_status_relay_is_binary_with_closed_as_on() -> None:
+    specs = _map_enclosure_status(
+        "panel-1",
+        CAPABILITY_STATUS,
+        {"relay": {"datatype": "enum", "format": "UNKNOWN,OPEN,CLOSED"}},
+        {},
+    )
+    assert len(specs) == 1
+    assert specs[0].platform == Platform.BINARY_SENSOR
+    assert specs[0].on_values == {"CLOSED"}
+
+
+def test_map_enclosure_status_emits_seven_specs_from_panel-a_shape() -> None:
+    """panel-a publishes all 7 status properties (with legacy vendor-cloud name)."""
+    specs = _map_enclosure_status(
+        "panel-1",
+        CAPABILITY_STATUS,
+        {
+            "relay": {},
+            "ethernet": {},
+            "wifi": {},
+            "wifi-ssid": {},
+            "vendor-cloud": {},
+            "postal-code": {},
+            "time-zone": {},
+        },
+        {},
+    )
+    assert len(specs) == 7
+    cloud = [s for s in specs if s.name == "Cloud Connection"]
+    assert len(cloud) == 1
+    assert cloud[0].property_id == "vendor-cloud"
+
+
+def test_map_enclosure_status_uses_spec_cloud_connection_name_when_published() -> None:
+    specs = _map_enclosure_status(
+        "panel-1",
+        CAPABILITY_STATUS,
+        {"cloud-connection": {}},
+        {},
+    )
+    assert len(specs) == 1
+    assert specs[0].property_id == "cloud-connection"
+    assert specs[0].name == "Cloud Connection"
+
+
+# ── _map_enclosure_pcs ────────────────────────────────────────────────────
+
+
+def test_map_enclosure_pcs_emits_17_specs_for_panel-a() -> None:
+    """panel-a publishes the full PCS surface: 4 fixed + 5 limit families × 3 = 17."""
+    properties = {
+        "enabled": {}, "active": {},
+        "grid-islandable": {}, "breaker-rating": {"unit": "A"},
+        "import-limit": {"unit": "A"},
+        "import-limit-enablement": {},
+        "import-limit-active": {},
+        "feed-import-limit": {"unit": "A"},
+        "feed-import-limit-enablement": {},
+        "feed-import-limit-active": {},
+        "grid-import-limit": {"unit": "A"},
+        "grid-import-limit-enablement": {},
+        "grid-import-limit-active": {},
+        "off-grid-import-limit": {"unit": "A"},
+        "off-grid-import-limit-enablement": {},
+        "off-grid-import-limit-active": {},
+        "requested-import-limit": {"unit": "A"},
+        "requested-import-limit-enablement": {},
+        "requested-import-limit-active": {},
+    }
+    specs = _map_enclosure_pcs("panel-1", CAPABILITY_PCS, properties, {})
+    assert len(specs) == 19  # 4 + (5 × 3) = 19
+
+    limit_sensors = [s for s in specs if s.device_class == SensorDeviceClass.CURRENT and s.property_id != "breaker-rating"]
+    assert len(limit_sensors) == 5
+    for s in limit_sensors:
+        assert s.native_unit == UnitOfElectricCurrent.AMPERE
+        assert s.state_class == SensorStateClass.MEASUREMENT
+
+
+def test_map_enclosure_pcs_breaker_rating_is_diagnostic_current() -> None:
+    specs = _map_enclosure_pcs(
+        "panel-1", CAPABILITY_PCS, {"breaker-rating": {"unit": "A"}}, {}
+    )
+    assert len(specs) == 1
+    assert specs[0].device_class == SensorDeviceClass.CURRENT
+    assert specs[0].entity_category == EntityCategory.DIAGNOSTIC
+    assert specs[0].state_class is None
+
+
+# ── _map_enclosure_power_flows ────────────────────────────────────────────
+
+
+def test_map_enclosure_power_flows_emits_four_directional_sensors() -> None:
+    specs = _map_enclosure_power_flows(
+        "panel-1",
+        CAPABILITY_POWER_FLOWS,
+        {kind: {"unit": "W"} for kind in ("pv", "battery", "grid", "site")},
+        {},
+    )
+    assert len(specs) == 4
+    for spec in specs:
+        assert spec.platform == Platform.SENSOR
+        assert spec.device_class == SensorDeviceClass.POWER
+        assert spec.state_class == SensorStateClass.MEASUREMENT
+        assert spec.native_unit == UnitOfPower.WATT
+
+
+def test_map_enclosure_power_flows_pv_name_capitalization() -> None:
+    """The pv flow's user-facing label should read 'PV Power', not 'Pv Power'."""
+    specs = _map_enclosure_power_flows(
+        "panel-1", CAPABILITY_POWER_FLOWS, {"pv": {"unit": "W"}}, {}
+    )
+    assert specs[0].name == "PV Power"
+
+
+# ── _map_enclosure_shed_forecast ──────────────────────────────────────────
+
+
+def test_map_enclosure_shed_forecast_emits_four_durations_and_confidence() -> None:
+    specs = _map_enclosure_shed_forecast(
+        "panel-1",
+        CAPABILITY_SHED_FORECAST,
+        {
+            "total-time-remaining": {"unit": "min"},
+            "time-to-priority-shed": {"unit": "min"},
+            "full-charge-total-time-remaining": {"unit": "min"},
+            "full-charge-time-to-priority-shed": {"unit": "min"},
+            "confidence": {"datatype": "enum"},
+        },
+        {},
+    )
+    assert len(specs) == 5
+    durations = [s for s in specs if s.device_class == SensorDeviceClass.DURATION]
+    assert len(durations) == 4
+    for d in durations:
+        assert d.native_unit == UnitOfTime.MINUTES
+    confidence = [s for s in specs if s.property_id == "confidence"]
+    assert len(confidence) == 1
+    assert confidence[0].entity_category == EntityCategory.DIAGNOSTIC
+
+
+# ── _map_enclosure_shed ───────────────────────────────────────────────────
+
+
+def test_map_enclosure_shed_override_is_settable_switch() -> None:
+    specs = _map_enclosure_shed(
+        "panel-1", CAPABILITY_SHED, {"override": {"datatype": "boolean", "settable": True}}, {}
+    )
+    assert len(specs) == 1
+    assert specs[0].platform == Platform.SWITCH
+    assert specs[0].settable is True
+
+
+def test_map_enclosure_shed_soc_threshold_is_battery_percentage() -> None:
+    specs = _map_enclosure_shed(
+        "panel-1",
+        CAPABILITY_SHED,
+        {"soc-threshold": {"datatype": "integer", "unit": "%"}},
+        {},
+    )
+    assert len(specs) == 1
+    assert specs[0].device_class == SensorDeviceClass.BATTERY
+    assert specs[0].native_unit == PERCENTAGE
+    assert specs[0].entity_category == EntityCategory.DIAGNOSTIC
+
+
 # ── Dispatch table ────────────────────────────────────────────────────────
 
 
@@ -175,36 +398,45 @@ def panel-b_devices() -> dict[str, Any]:
 
 
 def test_walk_panel-a_snapshot_produces_enclosure_specs(panel-a_devices: dict[str, Any]) -> None:
-    """The panel-a panel has info (6 props) + door (1 prop). Phase 1 should emit 7 specs total."""
+    """Walk the panel-a snapshot end-to-end.
+
+    The panel publishes all 8 enclosure capabilities; lugs/BESS/MID/circuits are
+    still unmapped, so every spec emitted here belongs to the panel root.
+    """
     specs = entities_from_tree(panel-a_devices)
 
-    info_specs = [s for s in specs if s.capability == CAPABILITY_INFO]
-    door_specs = [s for s in specs if s.capability == CAPABILITY_DOOR]
-
-    # Every spec should belong to the panel root, because no other mapper is implemented yet.
     panel_id = "nt-0000-abc12"
     assert all(s.device_id == panel_id for s in specs)
 
-    # panel-a info declares 6 properties: vendor-name, model, serial-number,
-    # hardware-version, software-version (pre-rename), data-model-version.
-    assert len(info_specs) == 6
+    # Counts per capability against the canonical panel-a snapshot.
+    by_cap: dict[str, int] = {}
+    for s in specs:
+        by_cap[s.capability] = by_cap.get(s.capability, 0) + 1
 
-    # Door has one property. The snapshot predates the firmware-side rename to
-    # door/state and still publishes door/door — the mapper picks it up either way.
-    assert len(door_specs) == 1
-    assert door_specs[0].property_id in {"state", "door"}
+    assert by_cap[CAPABILITY_INFO] == 6              # vendor, model, serial, HW, FW, data-model
+    assert by_cap[CAPABILITY_DOOR] == 1
+    assert by_cap[CAPABILITY_METER] == 2             # l1/l2 voltage
+    assert by_cap[CAPABILITY_STATUS] == 7
+    assert by_cap[CAPABILITY_PCS] == 17              # 4 fixed + import-limit alone + 4 limits × 3
+    assert by_cap[CAPABILITY_POWER_FLOWS] == 4
+    assert by_cap[CAPABILITY_SHED_FORECAST] == 5
+    assert by_cap[CAPABILITY_SHED] == 2
+
+    assert len(specs) == sum(by_cap.values()) == 44
 
 
-def test_walk_panel-b_snapshot_does_not_crash(panel-b_devices: dict[str, Any]) -> None:
+def test_walk_panel-b_snapshot_panel_root_only(panel-b_devices: dict[str, Any]) -> None:
     """Walk panel-b (which adds PV vs panel-a).
 
-    All 24 unimplemented mappers should return [] without crashing.
+    All 24 lugs/BESS/MID/PV/EVSE/circuit mappers are still stubs so every spec
+    belongs to the panel root. Same enclosure surface as panel-a (8 capabilities).
     """
     specs = entities_from_tree(panel-b_devices)
 
-    # Only the panel root's info + door specs land in Phase 1.
     panel_id = "nt-0000-def34"
     assert {s.device_id for s in specs} == {panel_id}
+    # Same enclosure capability layout as panel-a → same total spec count.
+    assert len(specs) == 44
 
 
 def test_walk_empty_tree_returns_empty_list() -> None:
