@@ -356,6 +356,27 @@ async def _wait_for_tree_discovery(
                         expected.add(child_id)
                         added = True
 
+        # Workaround for an SDK race on initial connect: retained $state=ready
+        # often arrives microseconds before retained $description, and the SDK's
+        # reconcile fires on the state-edge with an empty description's
+        # children list — never re-firing when the description lands. Force a
+        # reconcile from our side for every device whose description we've
+        # already observed; the SDK's _reconcile_descendants is idempotent (no
+        # changes if the children are already subscribed) so it's safe to call
+        # repeatedly. Filed as a tracked SDK bug; remove this hook when fixed.
+        for device_id in list(expected):
+            dev = controller.devices.get(device_id)
+            if dev is None or dev.description is None:
+                continue
+            if dev.description.get("children"):
+                try:
+                    controller._reconcile_descendants(device_id)
+                except Exception:  # pragma: no cover — defensive against SDK internals
+                    _LOGGER.exception(
+                        "force-reconcile failed for %s; SDK may have changed shape",
+                        device_id,
+                    )
+
         missing = {
             d for d in expected
             if d not in controller.devices
