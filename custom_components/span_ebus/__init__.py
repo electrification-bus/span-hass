@@ -28,6 +28,7 @@ from .const import (
     DESCRIPTION_TIMEOUT,
     DEVICE_READY_TIMEOUT,
     DEVICE_TYPE_CIRCUIT,
+    DEVICE_TYPE_LUGS,
     DOMAIN,
     PLATFORMS,
     TREE_DISCOVERY_TIMEOUT,
@@ -519,6 +520,17 @@ def _stamp_device_presentation(
         else:
             type_label = DEVICE_TYPE_LABELS.get(dtype, dtype.title())
             short_serial = panel.serial_number.rsplit("-", 1)[-1]
+            # Lugs come in matched up/down pairs; the device-class label alone
+            # ("Lugs") collides between the two. Read info/direction off the
+            # device and prefix accordingly so HA's entity_id auto-derivation
+            # doesn't have to suffix one with _2.
+            if dtype == DEVICE_TYPE_LUGS:
+                direction = panel.get_property_value(
+                    spec.device_id, "info", "direction"
+                ) or ""
+                prefix = direction.strip().capitalize()
+                if prefix in {"Upstream", "Downstream"}:
+                    type_label = f"{prefix} {type_label}"
             spec.device_name = f"{short_serial} {type_label}"
 
 
