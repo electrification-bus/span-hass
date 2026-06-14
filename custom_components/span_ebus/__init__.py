@@ -541,22 +541,37 @@ def _register_descendants(
     controller: Any,
     entity_specs: list,
 ) -> None:
-    """Register or update descendant HA devices in the device registry."""
+    """Register or update descendant HA devices in the device registry.
+
+    ``async_get_or_create`` only sets the device name on first creation; when
+    the integration's default name changes between releases (e.g. the
+    upstream / downstream lugs disambiguation), existing devices keep the old
+    name. Explicitly call ``async_update_device`` whenever the desired name
+    differs from the current one, but skip when the user has set
+    ``name_by_user`` so we don't trample their custom labels.
+    """
     seen: set[str] = set()
     for spec in entity_specs:
         if spec.device_id == panel.serial_number or spec.device_id in seen:
             continue
         seen.add(spec.device_id)
-        device_registry.async_get_or_create(
-            config_entry_id=config_entry_id,
-            **descendant_device_info(
-                panel_serial=panel.serial_number,
-                device_id=spec.device_id,
-                device_type=spec.device_type,
-                device_name=spec.device_name,
-                parent_device_id=spec.via_device_id,
-            ),
+        info = descendant_device_info(
+            panel_serial=panel.serial_number,
+            device_id=spec.device_id,
+            device_type=spec.device_type,
+            device_name=spec.device_name,
+            parent_device_id=spec.via_device_id,
         )
+        device = device_registry.async_get_or_create(
+            config_entry_id=config_entry_id, **info
+        )
+        desired_name = info.get("name")
+        if (
+            desired_name
+            and device.name != desired_name
+            and not device.name_by_user
+        ):
+            device_registry.async_update_device(device.id, name=desired_name)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
