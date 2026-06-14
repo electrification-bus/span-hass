@@ -26,8 +26,14 @@ PLATFORMS: list[Platform] = [
 ]
 
 # Timeouts
-DESCRIPTION_TIMEOUT = 30  # seconds to wait for MQTT $description
-DEVICE_READY_TIMEOUT = 120  # seconds to wait for device "ready" state
+DESCRIPTION_TIMEOUT = 30  # seconds to wait for the root device's MQTT $description
+DEVICE_READY_TIMEOUT = 120  # seconds to wait for the root device's "ready" state
+# Tree-rooted mode (SDK 0.3.0+) discovers descendants only after the parent's
+# init→ready edge, so controller.devices populates over time. Wait for the full
+# transitive closure (panel → lugs / BESS / PV / EVSE / circuits, BESS → MID)
+# to settle before invoking the mapper layer; missing the wait drops every
+# descendant device + its entities on the floor.
+TREE_DISCOVERY_TIMEOUT = 60  # seconds to wait for the descendant tree to settle
 CIRCUIT_NAMES_TIMEOUT = 10  # seconds to wait for circuit name properties after ready
 API_TIMEOUT = 15  # seconds for REST API calls
 

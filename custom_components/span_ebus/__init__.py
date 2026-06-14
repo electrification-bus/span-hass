@@ -30,6 +30,7 @@ from .const import (
     DEVICE_TYPE_CIRCUIT,
     DOMAIN,
     PLATFORMS,
+    TREE_DISCOVERY_TIMEOUT,
 )
 from .services import async_setup_services
 from .util import (
@@ -153,6 +154,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "SPAN Panel %s: timed out waiting for root ready state; "
             "proceeding with available descendants",
             serial_number,
+        )
+
+    # Tree-rooted SDK mode subscribes to descendants only after the parent's
+    # init→ready edge, so wait for the transitive closure of children to land
+    # before invoking the mapper layer. Without this we'd snapshot
+    # ``controller.devices`` while only the panel root is present and silently
+    # drop every descendant (lugs / BESS / MID / PV / EVSE / every circuit).
+    tree_complete = await _wait_for_tree_discovery(
+        panel, serial_number, TREE_DISCOVERY_TIMEOUT
+    )
+    if not tree_complete:
+        _LOGGER.warning(
+            "SPAN Panel %s: descendant discovery did not settle within %ds; "
+            "proceeding with partial tree",
+            serial_number,
+            TREE_DISCOVERY_TIMEOUT,
         )
 
     controller = panel.controller
@@ -294,6 +311,88 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def _wait_for_tree_discovery(
+    panel: Any,
+    root_device_id: str,
+    timeout: float,
+) -> bool:
+    """Wait for the SDK to discover the full tree under the root device.
+
+    In tree-rooted mode (SDK 0.3.0+ ``Controller(root_device_id=...)``), the
+    Controller only starts subscribing to a parent's children after that
+    parent's own ``$state=ready`` arrives — descendants populate
+    progressively. Repeatedly walk the transitive closure of
+    ``$description.children`` starting from the root, waiting until every
+    expected device-id has appeared in ``controller.devices`` with a
+    description. Each iteration may grow the expected set as deeper children
+    (e.g. MID under BESS) come into view.
+
+    Returns True when the tree has settled (no new children added in the
+    last iteration AND every expected device has a description), False on
+    timeout.
+    """
+    controller = panel.controller
+    if controller is None:
+        return False
+
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    last_logged_count = 0
+
+    while True:
+        # Walk the closure of root → children → grandchildren given current state.
+        expected: set[str] = {root_device_id}
+        added = True
+        while added:
+            added = False
+            for device_id in list(expected):
+                dev = controller.devices.get(device_id)
+                if dev is None or dev.description is None:
+                    continue
+                for child_id in dev.description.get("children", []) or []:
+                    if child_id not in expected:
+                        expected.add(child_id)
+                        added = True
+
+        missing = {
+            d for d in expected
+            if d not in controller.devices
+            or controller.devices[d].description is None
+        }
+
+        if not missing:
+            _LOGGER.debug(
+                "SPAN Panel %s: tree discovery settled (%d devices)",
+                root_device_id,
+                len(expected),
+            )
+            return True
+
+        if len(controller.devices) > last_logged_count:
+            _LOGGER.debug(
+                "SPAN Panel %s: tree discovery in progress (%d/%d devices, "
+                "%d missing)",
+                root_device_id,
+                len(expected) - len(missing),
+                len(expected),
+                len(missing),
+            )
+            last_logged_count = len(controller.devices)
+
+        if loop.time() >= deadline:
+            _LOGGER.warning(
+                "SPAN Panel %s: tree discovery timeout — %d/%d expected devices "
+                "missing descriptions; first few: %s",
+                root_device_id,
+                len(missing),
+                len(expected),
+                ", ".join(sorted(missing)[:5]),
+            )
+            return False
+
+        await asyncio.sleep(0.5)
 
 
 async def _wait_for_circuit_names(
