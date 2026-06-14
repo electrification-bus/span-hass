@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+import contextlib
 from datetime import timedelta
 import logging
 import resource
@@ -255,11 +256,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         )
 
-    def _on_ready() -> None:
-        _LOGGER.info(
-            "SPAN Panel %s ready transition — refreshing descendant device-registry names",
-            serial_number,
-        )
+    def _on_tree_state() -> None:
+        """Re-walk the tree on any descendant's init→ready edge.
+
+        Per Homie 5, init→ready is the consumer's "trust me now" signal. Use
+        every descendant's ready edge (not just the root's) to catch
+        late-arriving children that weren't present when initial setup
+        committed — descendant device entries get registered as soon as
+        their description+state are observed, without requiring a reload.
+        ``_register_descendants`` is idempotent via ``async_get_or_create``,
+        so reruns on already-known devices are essentially free.
+        """
         if panel.controller is None:
             return
         refreshed_snapshot = _controller_devices_to_snapshot(panel.controller.devices)
@@ -269,7 +276,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             dr.async_get(hass), entry.entry_id, panel, panel.controller, refreshed_specs
         )
 
-    unregister_callbacks.append(panel.register_ready_callback(_on_ready))
+    unregister_callbacks.append(panel.register_tree_state_callback(_on_tree_state))
 
     def _on_device_removed(device_id: str) -> None:
         _LOGGER.info(
@@ -321,100 +328,92 @@ async def _wait_for_tree_discovery(
 ) -> bool:
     """Wait for the SDK to discover the full tree under the root device.
 
-    In tree-rooted mode (SDK 0.3.0+ ``Controller(root_device_id=...)``), the
-    Controller only starts subscribing to a parent's children after that
-    parent's own ``$state=ready`` arrives — descendants populate
-    progressively. Repeatedly walk the transitive closure of
-    ``$description.children`` starting from the root, waiting until every
-    expected device-id has appeared in ``controller.devices`` with a
-    description. Each iteration may grow the expected set as deeper children
-    (e.g. MID under BESS) come into view.
+    Event-driven on the Homie 5 init→ready signal: ``register_tree_state_callback``
+    fires whenever any device transitions to ``ready`` (or is first observed
+    already in ``ready``), which is the spec's authoritative "description and
+    state are now current" trigger. Each ready edge means the closure may have
+    grown (a previously-unseen child published its $description, listing
+    grandchildren) or may have settled (every expected device has ready+desc).
 
-    Returns True when the tree has settled (no new children added in the
-    last iteration AND every expected device has a description), False on
-    timeout.
+    The closure walk runs once per ready edge — no polling, no fixed sleep.
+    The timeout is a safety backstop, not a per-iteration delay.
+
+    Returns True when the tree has settled, False on timeout.
     """
     controller = panel.controller
     if controller is None:
         return False
 
-    loop = asyncio.get_event_loop()
-    deadline = loop.time() + timeout
-    last_logged_count = 0
+    edge_event = asyncio.Event()
+    unregister = panel.register_tree_state_callback(edge_event.set)
 
-    while True:
-        # Walk the closure of root → children → grandchildren given current state.
-        expected: set[str] = {root_device_id}
-        added = True
-        while added:
-            added = False
-            for device_id in list(expected):
-                dev = controller.devices.get(device_id)
-                if dev is None or dev.description is None:
-                    continue
-                for child_id in dev.description.get("children", []) or []:
-                    if child_id not in expected:
-                        expected.add(child_id)
-                        added = True
+    try:
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        last_logged_count = 0
 
-        # Workaround for an SDK race on initial connect: retained $state=ready
-        # often arrives microseconds before retained $description, and the SDK's
-        # reconcile fires on the state-edge with an empty description's
-        # children list — never re-firing when the description lands. Force a
-        # reconcile from our side for every device whose description we've
-        # already observed; the SDK's _reconcile_descendants is idempotent (no
-        # changes if the children are already subscribed) so it's safe to call
-        # repeatedly. Filed as a tracked SDK bug; remove this hook when fixed.
-        for device_id in list(expected):
-            dev = controller.devices.get(device_id)
-            if dev is None or dev.description is None:
-                continue
-            if dev.description.get("children"):
-                try:
-                    controller._reconcile_descendants(device_id)
-                except Exception:  # pragma: no cover — defensive against SDK internals
-                    _LOGGER.exception(
-                        "force-reconcile failed for %s; SDK may have changed shape",
-                        device_id,
-                    )
+        while True:
+            # Clear BEFORE checking so a ready-edge that fires after the check
+            # but before the await still wakes us up.
+            edge_event.clear()
 
-        missing = {
-            d for d in expected
-            if d not in controller.devices
-            or controller.devices[d].description is None
-        }
+            # Walk the closure of root → children → grandchildren given current state.
+            expected: set[str] = {root_device_id}
+            added = True
+            while added:
+                added = False
+                for device_id in list(expected):
+                    dev = controller.devices.get(device_id)
+                    if dev is None or dev.description is None:
+                        continue
+                    for child_id in dev.description.get("children", []) or []:
+                        if child_id not in expected:
+                            expected.add(child_id)
+                            added = True
 
-        if not missing:
-            _LOGGER.debug(
-                "SPAN Panel %s: tree discovery settled (%d devices)",
-                root_device_id,
-                len(expected),
-            )
-            return True
+            missing = {
+                d for d in expected
+                if d not in controller.devices
+                or controller.devices[d].description is None
+            }
 
-        if len(controller.devices) > last_logged_count:
-            _LOGGER.debug(
-                "SPAN Panel %s: tree discovery in progress (%d/%d devices, "
-                "%d missing)",
-                root_device_id,
-                len(expected) - len(missing),
-                len(expected),
-                len(missing),
-            )
-            last_logged_count = len(controller.devices)
+            if not missing:
+                _LOGGER.debug(
+                    "SPAN Panel %s: tree discovery settled (%d devices)",
+                    root_device_id,
+                    len(expected),
+                )
+                return True
 
-        if loop.time() >= deadline:
-            _LOGGER.warning(
-                "SPAN Panel %s: tree discovery timeout — %d/%d expected devices "
-                "missing descriptions; first few: %s",
-                root_device_id,
-                len(missing),
-                len(expected),
-                ", ".join(sorted(missing)[:5]),
-            )
-            return False
+            if len(controller.devices) > last_logged_count:
+                _LOGGER.debug(
+                    "SPAN Panel %s: tree discovery in progress (%d/%d devices, "
+                    "%d missing)",
+                    root_device_id,
+                    len(expected) - len(missing),
+                    len(expected),
+                    len(missing),
+                )
+                last_logged_count = len(controller.devices)
 
-        await asyncio.sleep(0.5)
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                _LOGGER.warning(
+                    "SPAN Panel %s: tree discovery timeout — %d/%d expected "
+                    "devices missing descriptions; first few: %s",
+                    root_device_id,
+                    len(missing),
+                    len(expected),
+                    ", ".join(sorted(missing)[:5]),
+                )
+                return False
+
+            # If the wait times out, the next loop iteration's deadline check
+            # logs and returns False — no extra handling needed here.
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(edge_event.wait(), timeout=remaining)
+    finally:
+        unregister()
 
 
 async def _wait_for_circuit_names(

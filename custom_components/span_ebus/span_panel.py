@@ -64,8 +64,16 @@ class SpanPanel:
         # Availability callbacks keyed by device-id (or "*" for any-device).
         self._availability_callbacks: dict[str, list[AvailabilityCallback]] = {}
 
-        # Ready callbacks — fired on every ready transition (not just first).
+        # Ready callbacks — fired on every root ready transition (not just first).
         self._ready_callbacks: list[Callable[[], None]] = []
+
+        # Tree-state callbacks — fired whenever ANY device's $state transitions
+        # to ready (root or descendant), or a descendant is discovered already
+        # in ready. Per Homie 5, init→ready is the consumer's "trust me now"
+        # signal; use it as the trigger for setup-time tree-discovery waits and
+        # for post-setup descendant reassessment (so late-arriving children
+        # get HA devices/entities without a reload).
+        self._tree_state_callbacks: list[Callable[[], None]] = []
 
         # Device-removed callbacks — fired by the SDK when a descendant drops.
         self._device_removed_callbacks: list[DeviceRemovedCallback] = []
@@ -178,6 +186,26 @@ class SpanPanel:
 
         return unregister
 
+    def register_tree_state_callback(
+        self, cb: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Register a callback for any device's init→ready transition.
+
+        Wraps the SDK's ``on_device_state_changed`` (filtered to ready-edge
+        transitions) plus ``on_device_discovered`` for devices that arrive
+        already in ready. Per Homie 5 this is the consumer's authoritative
+        "trust me now" signal — use it to drive setup-time tree-discovery
+        waits and post-setup reassessment so late-arriving descendants get
+        HA devices without a reload.
+        """
+        self._tree_state_callbacks.append(cb)
+
+        def unregister() -> None:
+            if cb in self._tree_state_callbacks:
+                self._tree_state_callbacks.remove(cb)
+
+        return unregister
+
     def register_device_removed_callback(
         self, cb: DeviceRemovedCallback
     ) -> Callable[[], None]:
@@ -216,6 +244,7 @@ class SpanPanel:
         self._property_callbacks.clear()
         self._availability_callbacks.clear()
         self._ready_callbacks.clear()
+        self._tree_state_callbacks.clear()
         self._device_removed_callbacks.clear()
 
     # ── SDK callbacks (called from paho-mqtt thread) ──────────────────────
@@ -228,6 +257,10 @@ class SpanPanel:
         if device.device_id == self.serial_number and device.state == "ready":
             self.hass.loop.call_soon_threadsafe(self.device_ready.set)
             self.hass.loop.call_soon_threadsafe(self._dispatch_ready)
+        # A device discovered already in ``ready`` is a ready-edge from the
+        # consumer's perspective (None → ready) — fire the tree-state signal.
+        if device.state == "ready":
+            self.hass.loop.call_soon_threadsafe(self._dispatch_tree_state)
 
     def _on_description_received(self, device: DiscoveredDevice) -> None:
         """Handle a device's $description message (paho-mqtt thread)."""
@@ -284,6 +317,13 @@ class SpanPanel:
             self.hass.loop.call_soon_threadsafe(self.device_ready.set)
             self.hass.loop.call_soon_threadsafe(self._dispatch_ready)
 
+        # Any device's init→ready edge is the Homie 5 "consume me now" signal;
+        # fire the tree-state hook so subscribers (the setup-time discovery
+        # waiter and the post-setup descendant-reassessment hook) can react
+        # without polling.
+        if new_state == "ready" and old_state != "ready":
+            self.hass.loop.call_soon_threadsafe(self._dispatch_tree_state)
+
     def _on_device_removed(self, device: DiscoveredDevice) -> None:
         """Handle a descendant dropping out of the tree (paho-mqtt thread, leaves-first).
 
@@ -331,6 +371,15 @@ class SpanPanel:
                 cb()
             except Exception:
                 _LOGGER.exception("Error in ready callback")
+
+    @callback
+    def _dispatch_tree_state(self) -> None:
+        """Dispatch tree-state-change notification to registered callbacks."""
+        for cb in list(self._tree_state_callbacks):
+            try:
+                cb()
+            except Exception:
+                _LOGGER.exception("Error in tree_state callback")
 
     @callback
     def _dispatch_device_removed(self, device_id: str) -> None:

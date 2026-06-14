@@ -9,7 +9,7 @@ package-mode = false
 [tool.poetry.dependencies]
 python = ">=3.14.2,<3.15"
 homeassistant = "2026.2.2"
-ebus-sdk = "^0.3.0"
+ebus-sdk = "^0.3.1"
 
 [tool.poetry.group.dev.dependencies]
 homeassistant-stubs = "2026.2.2"
