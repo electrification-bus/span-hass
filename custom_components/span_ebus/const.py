@@ -33,7 +33,7 @@ DEVICE_READY_TIMEOUT = 120  # seconds to wait for the root device's "ready" stat
 # transitive closure (panel → lugs / BESS / PV / EVSE / circuits, BESS → MID)
 # to settle before invoking the mapper layer; missing the wait drops every
 # descendant device + its entities on the floor.
-TREE_DISCOVERY_TIMEOUT = 60  # seconds to wait for the descendant tree to settle
+TREE_DISCOVERY_TIMEOUT = 120  # seconds to wait for the descendant tree to settle
 CIRCUIT_NAMES_TIMEOUT = 10  # seconds to wait for circuit name properties after ready
 API_TIMEOUT = 15  # seconds for REST API calls
 
