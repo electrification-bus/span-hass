@@ -463,16 +463,31 @@ def _map_enclosure_shed(
 # ─ Lugs (upstream + downstream) capabilities ─
 
 
-def _lug_direction(device_data: dict[str, Any]) -> str:
-    """Return the lug's direction ('upstream'/'downstream'/'') from runtime properties.
+def _lug_direction(device_data: dict[str, Any], device_id: str = "") -> str:
+    """Return the lug's direction ('upstream'/'downstream'/'').
 
-    The publisher reports lowercase even though the description enum format is
-    UPPERCASE — normalise before comparing. Returns the empty string when the
-    direction isn't yet known (e.g. property values haven't arrived at the time
-    the descriptor is constructed); callers should treat that as "unknown".
+    Prefers the runtime ``info/direction`` property when it's been delivered
+    (publisher's authoritative source — handles future device-id renames or
+    publisher-specific id conventions). Falls back to parsing the device-id
+    suffix (``-lugs-up`` / ``-lugs-dn``) when the property hasn't been
+    observed yet. Without the fallback, the lugs ``connection`` mapper would
+    silently emit zero entities on the first integration setup pass —
+    property values arrive asynchronously after the description, and the
+    initial ``entities_from_tree`` walk often runs before ``info/direction``
+    has been delivered. The fallback also lets the meter mapper pick the
+    correct user-friendly energy-entity names ("Energy" / "Energy Returned"
+    on upstream) without waiting for the property.
+
+    Returns the empty string only when neither source resolves the direction.
     """
     raw = device_data.get("properties", {}).get("info/direction", "")
-    return str(raw).lower()
+    if raw:
+        return str(raw).lower()
+    if device_id.endswith("-lugs-up"):
+        return "upstream"
+    if device_id.endswith("-lugs-dn"):
+        return "downstream"
+    return ""
 
 
 def _map_lugs_info(
@@ -520,7 +535,7 @@ def _map_lugs_meter(
     Power is direction-agnostic — positive always means "flowing into the
     panel," negative "flowing out" — so it stays "Power" in both directions.
     """
-    is_upstream = _lug_direction(device_data) == "upstream"
+    is_upstream = _lug_direction(device_data, device_id) == "upstream"
     imported_name = "Energy" if is_upstream else "Imported Energy"
     exported_name = "Energy Returned" if is_upstream else "Exported Energy"
 
@@ -586,7 +601,7 @@ def _map_lugs_connection(
     binary_sensor that's "on" when status is anything other than OK — the
     natural HA-side fit for a "something's wrong" indicator.
     """
-    direction = _lug_direction(device_data)
+    direction = _lug_direction(device_data, device_id)
 
     common: dict[str, dict[str, Any]] = {
         "count": {

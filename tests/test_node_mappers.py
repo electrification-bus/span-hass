@@ -464,11 +464,34 @@ def test_map_lugs_meter_downstream_uses_literal_energy_names() -> None:
 def test_map_lugs_meter_unknown_direction_falls_back_to_literal() -> None:
     """Unknown direction still emits sensors with literal names.
 
-    Tests the descriptor in isolation (when the publisher hasn't yet sent
-    info/direction at the time entities_from_tree was called).
+    Tests the descriptor in isolation when neither the property nor the
+    id-suffix resolves direction.
     """
-    specs = _map_lugs_meter("panel-1-lugs-up", CAPABILITY_METER, _LUGS_METER_PROPERTIES, {})
+    specs = _map_lugs_meter("some-rogue-device", CAPABILITY_METER, _LUGS_METER_PROPERTIES, {})
     by_id = {s.property_id: s for s in specs}
+    assert by_id["imported-energy"].name == "Imported Energy"
+    assert by_id["exported-energy"].name == "Exported Energy"
+
+
+def test_map_lugs_meter_resolves_direction_from_id_suffix_when_property_absent() -> None:
+    """SPAN-urn fallback: device-id suffix resolves direction.
+
+    The lug's device-id ``-lugs-up`` / ``-lugs-dn`` suffix is sufficient
+    to pick energy entity names without waiting for ``info/direction``.
+    Property values arrive asynchronously after the description; the
+    initial ``entities_from_tree`` walk often runs before they're loaded.
+    """
+    upstream = _map_lugs_meter(
+        "panel-1-lugs-up", CAPABILITY_METER, _LUGS_METER_PROPERTIES, {}
+    )
+    by_id = {s.property_id: s for s in upstream}
+    assert by_id["imported-energy"].name == "Energy"
+    assert by_id["exported-energy"].name == "Energy Returned"
+
+    downstream = _map_lugs_meter(
+        "panel-1-lugs-dn", CAPABILITY_METER, _LUGS_METER_PROPERTIES, {}
+    )
+    by_id = {s.property_id: s for s in downstream}
     assert by_id["imported-energy"].name == "Imported Energy"
     assert by_id["exported-energy"].name == "Exported Energy"
 
@@ -513,8 +536,36 @@ def test_map_lugs_connection_unknown_direction_emits_nothing() -> None:
     """Unknown direction emits nothing to avoid permanently-empty entities.
 
     Without direction we cannot say which half (fed-by-* vs feeds-*) is real.
+    Use a non-lugs device-id so the id-suffix fallback can't resolve it either.
     """
-    assert _map_lugs_connection("panel-1-lugs-up", CAPABILITY_CONNECTION, _LUGS_CONNECTION_FULL, {}) == []
+    assert _map_lugs_connection(
+        "some-rogue-device", CAPABILITY_CONNECTION, _LUGS_CONNECTION_FULL, {}
+    ) == []
+
+
+def test_map_lugs_connection_resolves_direction_from_id_suffix_when_property_absent() -> None:
+    """SPAN-urn fix: id-suffix picks the correct fed-by-* / feeds-* triplet.
+
+    Without this fallback, no connection entities were created on first
+    setup in production — all three live panels lost their lugs/connection
+    capability entirely, breaking downstream topology consumers like
+    hass-atlas.
+    """
+    upstream = _map_lugs_connection(
+        "panel-1-lugs-up", CAPABILITY_CONNECTION, _LUGS_CONNECTION_FULL, {}
+    )
+    upstream_ids = {s.property_id for s in upstream}
+    assert upstream_ids == {
+        "fed-by-device-id", "fed-by-device-type", "fed-by-device-status", "count",
+    }
+
+    downstream = _map_lugs_connection(
+        "panel-1-lugs-dn", CAPABILITY_CONNECTION, _LUGS_CONNECTION_FULL, {}
+    )
+    downstream_ids = {s.property_id for s in downstream}
+    assert downstream_ids == {
+        "feeds-device-id", "feeds-device-type", "feeds-device-status", "count",
+    }
 
 
 # ── _map_bess_info ────────────────────────────────────────────────────────
