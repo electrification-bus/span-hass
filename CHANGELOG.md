@@ -4,7 +4,53 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
-The 0.1.0 line is the initial alpha. All work to date is grouped here pending the first tagged release; once `v0.1.0` is tagged, this section will move under `[0.1.0]` with the tag date.
+## [0.2.0] — TBD
+
+The 0.2.0 release migrates the integration to the **G3P-23496 parent/child Homie 5 data model** that lands in SPAN firmware r202627. The panel publishes itself as a tree — panel root + per-lug / per-BESS / per-MID / per-PV / per-EVSE / per-circuit child devices — and the integration walks that tree, registering one HA device per Homie device. The old flat data model is gone.
+
+> **BREAKING — unique-IDs reset.** Every entity gets a new `unique_id` of the form `{panel-serial}_{device-id}_{capability}_{property-id}` reflecting the new tree shape. No 0.1.x → 0.2.0 translation is provided; old entities surface as unavailable orphans in HA's registry after upgrade. Recommended cleanup is **delete + re-add each panel config entry** for a clean state. See README §"Upgrading from 0.1.x" for details.
+
+### Added
+
+- **Tree-walked entity model.** Each Homie device becomes its own HA device: panel root + 2 lugs devices (upstream / downstream) + 1 BESS per commissioned battery + 1 MID grandchild per BESS + 1 PV per inverter + 1 EVSE + 1 device per circuit. Per-device entities are scoped to their owning device rather than all hanging off the panel.
+- **MID (Microgrid Interconnect Device) entities** — every commissioned BESS now has a synthesized MID grandchild with vendor / serial / product / model / firmware-version / hardware-version diagnostics plus `islanding-state` (ON_GRID / OFF_GRID / UNKNOWN), `grid-state` (UP / DOWN / DEGRADED / UNKNOWN), and `grid-forming-entity` ("GRID" when grid-tied, the BESS device-id when islanded). Surfaces what's actively forming the grid at any moment, particularly useful during outages.
+- **Shed forecast (BTR — battery time remaining) entities** — `total-time-remaining`, `time-to-priority-shed`, plus full-charge variants of both, all in minutes, plus a `confidence` (LOW/MEDIUM/HIGH) enum. Surfaces SPAN's runtime estimate of how long the panel can sustain its current load on battery.
+- **Shed override switch** — a settable switch on the panel root that forces shed-priority configuration to actually shed. Replaces the settable half of the retired 0.1.x `core/dominant-power-source` select. The panel firmware silently ignores writes outside the spec-defined preconditions (off-grid + degraded BESS comms).
+- **Connection capability** on lugs and circuits — publishes `feeds-device-id` / `feeds-device-type` / `feeds-device-status` (and `fed-by-*` on upstream lugs), letting consumers walk the per-circuit DER attribution graph. Replaces the retired 0.1.x `bess/feed`, `bess/relative-position`, `pv/feed`, `pv/relative-position`, `evse/feed` entities — derive position from the connection-graph instead.
+- **PCS capability** on the panel root — surfaces 17 entities covering import / feed-import / grid-import / off-grid-import / requested-import limits, their enablement enums, and their active boolean siblings. Joined by the relocated `grid-islandable` and `breaker-rating` from the old core node.
+- **Per-direction lugs entities** — upstream lugs and downstream lugs are now distinct HA devices ("c192x Upstream Lugs" / "c192x Downstream Lugs"), each with its own info / meter / connection capability entities. The composite-suffix `{serial}_lugs-upstream_imported-energy` unique-ID format is replaced by the cleaner per-device shape.
+- **Auto-refresh of device names.** Whenever any device's init→ready edge fires, the integration walks the descendant tree and refreshes HA's device names from the publisher's current values (circuit user-labels in particular). Picks up renames in the SPAN app without a HA restart.
+- **Auto-add of late-arriving descendants.** Slow boot cascades that deliver a descendant's `$state=ready` after initial setup completes (observed on heavily-loaded panels with 19+ circuits) are now caught by a post-setup tree-state hook and registered automatically — no manual reload needed.
+
+### Changed
+
+- **BREAKING — entity unique-ID format** — see release header.
+- **BREAKING — required SPAN firmware** — r202627 or later (the release in which G3P-23496 lands). Earlier firmware publishes the flat data model that this integration version no longer understands. Stay on the 0.1.x line until your panel takes the OTA.
+- **BREAKING — required ebus-sdk version** — `ebus-sdk >= 0.3.1` (ships the tree-rooted Controller mode and the description-after-state reconcile fix that this integration's discovery flow depends on).
+- **Lugs are HA devices now.** In 0.1.x, lug entities hung off the panel device with composite unique-IDs (`{serial}_lugs-upstream_imported-energy`). In 0.2.0 the upstream and downstream lugs each get their own HA device under the panel, with simple property-only entity IDs.
+- **Site metering is gone as a sub-device.** The 0.1.x `power-flows` sub-device is now a `power-flows` capability on the panel root device. The four directional entities (`pv-power`, `battery-power`, `grid-power`, `site-power`) live on the panel device itself.
+- **Property renames** picked up on the wire (publisher dual-name handling means both the legacy and spec names are recognised during the firmware-side rename roll-out window): `core/software-version` → `info/firmware-version`, `core/door` → `door/state`, `status/vendor-cloud` → `status/cloud-connection`, `circuit/space` → `info/tab-number`, `evse/status` → `status/operational-state`.
+- **Circuit boolean trio retired.** `circuit/sheddable` and `circuit/isNeverBackup` are gone (derivable from `priority/shed-priority` + `priority/relay-controllable`). `circuit/alwaysOn` is polarity-flipped to `priority/relay-controllable` (true = relay can be commanded).
+- **Energy entity names depend on direction.** Upstream lugs use the friendly "Energy" / "Energy Returned" naming (= grid consumption / grid export) per the README convention. Downstream lugs use literal "Imported Energy" / "Exported Energy" since the semantic flips between directions and SPAN doesn't currently populate the downstream side anyway.
+
+### Fixed
+
+- **Energy counter monotonicity workaround preserved.** The `total_increasing` energy sensors continue to suppress occasional 0.1 Wh decreases from the firmware ([AN-001](docs/appnote-AN001-energy-counter-monotonicity.md) still applies). Held-value behavior is unchanged from 0.1.x.
+- **Active-power firmware bug now publisher-fixed in tree-v1.** SPAN's r202627 firmware publishes circuit `active-power` and PV `nameplate-capacity` in correct units (W rather than the legacy mis-declared kW). The mapper still hard-codes W regardless of what the description says, so a panel that hasn't taken the fix surfaces correctly either way.
+- **Lugs connection entities create reliably on first setup** (SPAN-urn). Previously the lugs `connection` mapper bailed when its `info/direction` property hadn't been delivered yet at the moment of initial tree-walk — leaving 8 connection entities silently absent across both lugs devices. Now the mapper falls back to the device-id suffix (`-lugs-up` / `-lugs-dn`) when the property isn't loaded yet, so entities create on the first pass regardless of property-arrival timing.
+- **Late-arriving descendant cascades self-heal.** When the SDK delivers a descendant's `$state=ready` after initial setup has timed out — observed on busy panels where retained-message backlog delays `$state` arrival — the post-setup tree-state hook re-registers the descendant automatically.
+
+### Known issues
+
+- **Paho silent subscription dropout** on heavily-loaded connections (panels with 19+ circuits) may leave a single descendant — typically a MID — un-discovered, with no error logged. Manual escape hatch: reload the integration config entry, which creates a fresh paho client. Tracked as ebus-sdk SDK-1v0; doesn't affect entity shape, only delivery reliability of retained messages on the first connection.
+
+### Compatibility
+
+- **Companion tool**: [hass-atlas](https://github.com/electrification-bus/hass-atlas) needs ≥ commit `2fb80d4` for tree-model support. Earlier versions read the 0.1.x flat shape and degrade silently against 0.2.0.
+
+## [0.1.0] — 2026-02-22
+
+Initial alpha release of the SPAN Panel (eBus) Home Assistant custom integration. Targets SPAN MAIN 32 panels running firmware r202603 (the flat data model). See [`README.md`](https://github.com/electrification-bus/span-hass/blob/v0.1.0/README.md) at the `v0.1.0` tag for the entity surface as it shipped — the 0.2.0 release rewrites most of it.
 
 ### Added
 
@@ -41,4 +87,6 @@ The 0.1.0 line is the initial alpha. All work to date is grouped here pending th
 - The SPAN import/export energy direction convention (circuit `exported-energy` = consumption, upstream `imported-energy` = grid consumption) is not documented in the SPAN API and was reverse-engineered. See `README.md` §"Energy Flows and Import/Export" and the energy-counter monotonicity docs in [`docs/`](docs/).
 - After installing the integration for the first time, HA may need to be restarted **twice** before mDNS discovery picks up panels — a known limitation of how HA loads zeroconf service types for custom integrations on first install.
 
-[Unreleased]: https://github.com/electrification-bus/span-hass/commits/main
+[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.2.0
+[0.1.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.1.0
