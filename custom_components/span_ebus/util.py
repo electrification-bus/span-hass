@@ -29,8 +29,19 @@ DEVICE_TYPE_LABELS = {
 }
 
 
-def panel_device_info(serial_number: str, firmware_version: str = "") -> DeviceInfo:
-    """Build a DeviceInfo for the panel-root HA device."""
+def panel_device_info(
+    serial_number: str,
+    firmware_version: str = "",
+    upstream_panel_serial: str | None = None,
+) -> DeviceInfo:
+    """Build a DeviceInfo for the panel-root HA device.
+
+    When ``upstream_panel_serial`` is provided, the panel is linked under that
+    upstream panel via ``via_device``, producing the cascade hierarchy that's
+    visible in Settings → Devices. The upstream serial is derived from the
+    publisher's ``lugs-up/connection/fed-by-device-id`` triplet at integration
+    setup (see ``__init__._resolve_upstream_panel``).
+    """
     info = DeviceInfo(
         identifiers={(DOMAIN, serial_number)},
         manufacturer="SPAN",
@@ -39,6 +50,8 @@ def panel_device_info(serial_number: str, firmware_version: str = "") -> DeviceI
     )
     if firmware_version:
         info["sw_version"] = firmware_version
+    if upstream_panel_serial:
+        info["via_device"] = (DOMAIN, upstream_panel_serial)
     return info
 
 

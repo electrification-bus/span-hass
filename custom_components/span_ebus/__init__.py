@@ -34,7 +34,6 @@ from .const import (
     PLATFORMS,
     TREE_DISCOVERY_TIMEOUT,
 )
-from .services import async_setup_services
 from .util import (
     DEVICE_TYPE_LABELS,
     descendant_device_info,
@@ -108,9 +107,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Import here so the config flow can be discovered before ebus-sdk is installed.
     from .node_mappers import entities_from_tree  # noqa: PLC0415
     from .span_panel import SpanPanel  # noqa: PLC0415
-
-    if not hass.services.has_service(DOMAIN, "link_subpanel"):
-        await async_setup_services(hass)
 
     serial_number = entry.data[CONF_SERIAL_NUMBER]
 
@@ -217,21 +213,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _stamp_device_presentation(panel, controller, entity_specs)
 
     device_registry = dr.async_get(hass)
-    firmware = panel.get_property_value(serial_number, "info", "firmware-version") or (
-        panel.get_property_value(serial_number, "info", "software-version") or ""
-    )
-    device_registry.async_get_or_create(
-        config_entry_id=entry.entry_id,
-        **panel_device_info(serial_number, firmware),
-    )
-
-    _register_descendants(
+    _register_panel_and_descendants(
         device_registry, entry.entry_id, panel, controller, entity_specs
     )
 
     unregister_callbacks: list[Callable[[], None]] = []
 
     # Reactively update circuit device names when info/name arrives via MQTT.
+    # Property-update doesn't trigger an init→ready edge (no structural
+    # change), so the tree-state hook wouldn't fire — we wire a per-circuit
+    # property callback instead. ``async_get_or_create`` only sets ``name``
+    # on first creation, so the propagation has to go through
+    # ``async_update_device`` directly.
     for circuit_device_id in circuit_device_ids:
         _cid = circuit_device_id
 
@@ -240,15 +233,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "Circuit %s name updated to '%s'; refreshing device registry", cid, value
             )
             dev_reg = dr.async_get(hass)
-            dev_reg.async_get_or_create(
-                config_entry_id=entry.entry_id,
-                **descendant_device_info(
-                    panel_serial=panel.serial_number,
-                    device_id=cid,
-                    device_type=DEVICE_TYPE_CIRCUIT,
-                    device_name=value,
-                ),
+            existing = dev_reg.async_get_device(
+                identifiers={(DOMAIN, f"{panel.serial_number}_{cid}")}
             )
+            if existing is None:
+                # Brand-new circuit (e.g. user added a breaker mid-session).
+                # async_get_or_create will set name on first creation.
+                dev_reg.async_get_or_create(
+                    config_entry_id=entry.entry_id,
+                    **descendant_device_info(
+                        panel_serial=panel.serial_number,
+                        device_id=cid,
+                        device_type=DEVICE_TYPE_CIRCUIT,
+                        device_name=value,
+                    ),
+                )
+                return
+            if existing.name != value and not existing.name_by_user:
+                dev_reg.async_update_device(existing.id, name=value)
 
         unregister_callbacks.append(
             panel.register_property_callback(
@@ -262,17 +264,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         Per Homie 5, init→ready is the consumer's "trust me now" signal. Use
         every descendant's ready edge (not just the root's) to catch
         late-arriving children that weren't present when initial setup
-        committed — descendant device entries get registered as soon as
-        their description+state are observed, without requiring a reload.
-        ``_register_descendants`` is idempotent via ``async_get_or_create``,
-        so reruns on already-known devices are essentially free.
+        committed, and to pick up any upstream-topology change the publisher
+        announces (e.g. the lugs-up/connection/fed-by-device-id triplet that
+        drives the panel's via_device link). All registration is idempotent
+        via ``async_get_or_create``, so reruns on already-known devices are
+        essentially free.
         """
         if panel.controller is None:
             return
         refreshed_snapshot = _controller_devices_to_snapshot(panel.controller.devices)
         refreshed_specs = entities_from_tree(refreshed_snapshot)
         _stamp_device_presentation(panel, panel.controller, refreshed_specs)
-        _register_descendants(
+        _register_panel_and_descendants(
             dr.async_get(hass), entry.entry_id, panel, panel.controller, refreshed_specs
         )
 
@@ -533,29 +536,72 @@ def _stamp_device_presentation(
             spec.device_name = f"{short_serial} {type_label}"
 
 
-def _register_descendants(
+def _resolve_upstream_panel(panel: Any) -> str | None:
+    """Read the publisher's upstream-topology pointer for this panel.
+
+    G3P-24911 publishes the cascade topology via the lugs-up ``connection``
+    capability: ``fed-by-device-id`` carries the serial of whatever feeds this
+    panel, and ``fed-by-device-type`` distinguishes a sister panel
+    (``energy.ebus.device.distribution-enclosure`` — a downstream panel in a
+    cascade) from a BESS feeding from above (``energy.ebus.device.bess``) or
+    a utility feed (null triplet).
+
+    For the cascade case, return the upstream panel's serial so the caller
+    can set ``via_device`` on this panel's HA device — making the daisy
+    chain visible in Settings → Devices with no user action. For the BESS
+    case, return None: the BESS is already a child of this panel via the
+    Homie parent/child tree, so the via-device link runs BESS→panel, not
+    the other way around. For utility feed, also None — top of cascade.
+    """
+    lugs_up_id = f"{panel.serial_number}-lugs-up"
+    fed_by_id = panel.get_property_value(lugs_up_id, "connection", "fed-by-device-id")
+    fed_by_type = panel.get_property_value(lugs_up_id, "connection", "fed-by-device-type")
+    if not fed_by_id:
+        return None
+    if fed_by_type == "energy.ebus.device.distribution-enclosure":
+        return str(fed_by_id)
+    return None
+
+
+def _register_panel_and_descendants(
     device_registry: dr.DeviceRegistry,
     config_entry_id: str,
     panel: Any,
     controller: Any,
     entity_specs: list,
 ) -> None:
-    """Register or update descendant HA devices in the device registry.
+    """Register or update the panel root device plus every descendant.
 
-    ``async_get_or_create`` only sets the device name on first creation; when
-    the integration's default name changes between releases (e.g. the
-    upstream / downstream lugs disambiguation), existing devices keep the old
-    name. Explicitly call ``async_update_device`` whenever the desired name
-    differs from the current one, but skip when the user has set
-    ``name_by_user`` so we don't trample their custom labels.
+    The panel root carries ``via_device`` only when the publisher's lugs-up
+    connection points at a sister panel (cascade case) — handled by
+    ``_resolve_upstream_panel``. ``async_get_or_create`` only sets the device
+    name (and via_device) on first creation; explicit ``async_update_device``
+    keeps both in sync when the integration's default changes between releases
+    or when the publisher republishes the upstream link, while preserving any
+    user-set ``name_by_user``.
     """
+    serial_number = panel.serial_number
+    firmware = panel.get_property_value(serial_number, "info", "firmware-version") or (
+        panel.get_property_value(serial_number, "info", "software-version") or ""
+    )
+    upstream = _resolve_upstream_panel(panel)
+    panel_info = panel_device_info(
+        serial_number, firmware, upstream_panel_serial=upstream
+    )
+    panel_device = device_registry.async_get_or_create(
+        config_entry_id=config_entry_id, **panel_info
+    )
+    _refresh_name_and_via_device(
+        device_registry, panel_device, panel_info, upstream_serial=upstream
+    )
+
     seen: set[str] = set()
     for spec in entity_specs:
-        if spec.device_id == panel.serial_number or spec.device_id in seen:
+        if spec.device_id == serial_number or spec.device_id in seen:
             continue
         seen.add(spec.device_id)
         info = descendant_device_info(
-            panel_serial=panel.serial_number,
+            panel_serial=serial_number,
             device_id=spec.device_id,
             device_type=spec.device_type,
             device_name=spec.device_name,
@@ -564,13 +610,34 @@ def _register_descendants(
         device = device_registry.async_get_or_create(
             config_entry_id=config_entry_id, **info
         )
-        desired_name = info.get("name")
-        if (
-            desired_name
-            and device.name != desired_name
-            and not device.name_by_user
-        ):
-            device_registry.async_update_device(device.id, name=desired_name)
+        _refresh_name_and_via_device(device_registry, device, info)
+
+
+def _refresh_name_and_via_device(
+    device_registry: dr.DeviceRegistry,
+    device: dr.DeviceEntry,
+    info: Any,
+    upstream_serial: str | None = None,
+) -> None:
+    """Update a device's name and via_device link when our defaults change.
+
+    Preserves user-customized names (``name_by_user`` set). The via_device
+    update only applies when ``upstream_serial`` is supplied (panel-root
+    only); descendant via_device is set at creation time and rarely changes.
+    """
+    updates: dict[str, Any] = {}
+    desired_name = info.get("name")
+    if desired_name and device.name != desired_name and not device.name_by_user:
+        updates["name"] = desired_name
+    if upstream_serial is not None:
+        upstream_device = device_registry.async_get_device(
+            identifiers={(DOMAIN, upstream_serial)}
+        )
+        upstream_device_id = upstream_device.id if upstream_device else None
+        if upstream_device_id != device.via_device_id:
+            updates["via_device_id"] = upstream_device_id
+    if updates:
+        device_registry.async_update_device(device.id, **updates)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

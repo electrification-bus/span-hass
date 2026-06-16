@@ -206,18 +206,9 @@ Either way, **Energy Dashboard configuration must be rebuilt** — the unique-ID
 
 SPAN panels can be daisy-chained (lead panel + sub-panels). Each panel is set up as a separate config entry and appears as its own device in HA. Sub-devices (circuits, BESS, PV) are grouped under their respective panel.
 
-To establish the parent/child hierarchy in HA's device registry (which enables Sankey chart nesting), use the `link_subpanel` service:
+In **0.2.x** with SPAN firmware that publishes the G3P-24911 cascade topology, the cross-panel `via_device` hierarchy is **derived automatically** from each panel's `lugs-up/connection/fed-by-device-id` triplet — no manual configuration required. When a downstream panel's upstream feed is published as another `distribution-enclosure` device, this integration links the downstream panel under the upstream one at setup time (and re-evaluates on every init→ready cycle if the publisher updates it).
 
-**Settings > Developer Tools > Services:**
-
-```yaml
-service: span_ebus.link_subpanel
-data:
-  sub_serial: "nt-2024-d3e4f"
-  parent_serial: "nt-2024-a1b2c"
-```
-
-This sets `via_device_id` in the device registry, which persists across restarts.
+Result: daisy chains render correctly under Settings → Devices and in the Energy Dashboard Sankey with no service calls.
 
 ## Energy Flows and Import/Export
 
