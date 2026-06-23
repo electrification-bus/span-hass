@@ -4,7 +4,7 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
-## [0.2.0] — TBD
+## [0.2.0] — 2026-06-23
 
 The 0.2.0 release migrates the integration to the **G3P-23496 parent/child Homie 5 data model** that lands in SPAN firmware r202627. The panel publishes itself as a tree — panel root + per-lug / per-BESS / per-MID / per-PV / per-EVSE / per-circuit child devices — and the integration walks that tree, registering one HA device per Homie device. The old flat data model is gone.
 
