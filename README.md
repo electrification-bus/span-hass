@@ -25,7 +25,7 @@ Unlike polling-based integrations, span_ebus uses **local push** over MQTT — t
 
 ## Requirements
 
-- SPAN Panel **MAIN 32**, running firmware **r202627 or later** (the G3P-23496 parent/child Homie 5 data model)
+- SPAN Panel **MAIN 32**, running firmware **r202627 or later** (the parent/child Homie 5 data model)
 - Home Assistant 2026.2 or later
 - The panel must be reachable on the local network
 
@@ -194,7 +194,7 @@ Created per EVSE when one is commissioned.
 
 ## Upgrading from 0.1.x
 
-0.2.0 is a clean-cut migration to the G3P-23496 parent/child Homie 5 data model. **Entity unique-IDs are reset** — every entity gets a new ID reflecting the new tree shape. The old 0.1.x entities will appear in HA's registry as "unavailable" orphans after upgrade.
+0.2.0 is a clean-cut migration to the SPAN firmware r202627 parent/child Homie 5 data model. **Entity unique-IDs are reset** — every entity gets a new ID reflecting the new tree shape. The old 0.1.x entities will appear in HA's registry as "unavailable" orphans after upgrade.
 
 **Recommended path**: delete and re-add each panel config entry after the upgrade. HA removes all devices and entities the integration created when you delete a config entry, then re-adding via the standard mDNS-discovered flow (passphrase or door bypass) creates the new entities fresh. ~2 min per panel.
 
@@ -206,7 +206,7 @@ Either way, **Energy Dashboard configuration must be rebuilt** — the unique-ID
 
 SPAN panels can be daisy-chained (lead panel + sub-panels). Each panel is set up as a separate config entry and appears as its own device in HA. Sub-devices (circuits, BESS, PV) are grouped under their respective panel.
 
-In **0.2.x** with SPAN firmware that publishes the G3P-24911 cascade topology, the cross-panel `via_device` hierarchy is **derived automatically** from each panel's `lugs-up/connection/fed-by-device-id` triplet — no manual configuration required. When a downstream panel's upstream feed is published as another `distribution-enclosure` device, this integration links the downstream panel under the upstream one at setup time (and re-evaluates on every init→ready cycle if the publisher updates it).
+In **0.2.x** with SPAN firmware r202627 or later, the cross-panel `via_device` hierarchy is **derived automatically** from each panel's `lugs-up/connection/fed-by-device-id` triplet — no manual configuration required. When a downstream panel's upstream feed is published as another `distribution-enclosure` device, this integration links the downstream panel under the upstream one at setup time (and re-evaluates on every init→ready cycle if the publisher updates it).
 
 Result: daisy chains render correctly under Settings → Devices and in the Energy Dashboard Sankey with no service calls.
 
