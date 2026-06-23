@@ -4,9 +4,16 @@
 
 A custom [Home Assistant](https://www.home-assistant.io/) integration for [SPAN](https://www.span.io/) smart electrical panels, using the [SPAN eBus API](https://github.com/spanio/SPAN-API-Client-Docs).
 
-Unlike polling-based integrations, span_ebus uses **local push** over MQTT — the panel streams real-time updates directly to Home Assistant with no cloud dependency and no polling interval. Every circuit power change, relay toggle, and energy accumulation arrives instantly via the panel's built-in MQTT broker.
+`span_ebus` uses **local push** over MQTT — the panel streams real-time updates directly to Home Assistant with no cloud dependency and no polling interval. Every circuit power change, relay toggle, and energy accumulation arrives instantly via the panel's built-in MQTT broker.
 
-> **Early alpha release.** This integration has been developed over the past 72 hours and has not been tested extensively. It is running on the author's personal Home Assistant server with no known issues, but it is far too soon to conclude that this is a solid and stable integration. Please report any issues on the [GitHub issue tracker](https://github.com/electrification-bus/span-hass/issues).
+> **Active alpha.** The author runs this integration against three SPAN panels in a daisy-chain cascade in their own home; v0.2.0 (2026-06-23) is the first release against SPAN firmware r202627's new parent/child data model. Install base outside the author's home is currently zero — if you adopt the integration you're an early user. Please report any issues on the [GitHub issue tracker](https://github.com/electrification-bus/span-hass/issues).
+
+## Choosing a SPAN integration
+
+Two community Home Assistant integrations exist for SPAN panels — choose deliberately:
+
+- **[SpanPanel/span](https://github.com/SpanPanel/span)** — the established and most widely-adopted SPAN integration. Available in HACS, broad community support, several years of production use across many homes. **This is the right choice for most users.**
+- **`electrification-bus/span-hass`** (this integration) — newer. Uses the SPAN local eBus MQTT API (the Homie 5 parent/child tree publication documented at [SPAN-API-Client-Docs](https://github.com/spanio/SPAN-API-Client-Docs)). Requires SPAN firmware r202627 or later. Single-user install base today.
 
 ## Features
 
