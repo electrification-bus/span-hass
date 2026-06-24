@@ -15,9 +15,9 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import CAPABILITY_CONNECTION, DEVICE_TYPE_PV, DOMAIN
 from .entity_base import SpanEbusEntity
-from .node_mappers import EntitySpec
+from .node_mappers import EntitySpec, device_type_short
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,6 +75,34 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
         self._counter_decrease_suppressed = False
         self._last_numeric: float | None = None
 
+        # Sticky: once we observe this circuit feeds a PV device, suppress the
+        # active-power sign flip permanently (see ``_should_negate``).
+        self._feeds_pv = False
+
+    def _should_negate(self) -> bool:
+        """Whether to flip the sign of this update's value.
+
+        ``negate`` is the static default (load circuits report consumption as
+        negative → flip to positive). For a ``pv_sign_aware`` sensor (circuit
+        active-power), a PV-feed circuit is the exception: raw eBus already
+        reports generation as positive, so the flip must be suppressed. The
+        PV determination reads the live ``connection/feeds-device-type`` — a
+        retained sibling property that may not have arrived when the entity was
+        built, so re-check until detected, then cache (it does not change at
+        runtime).
+        """
+        if not self._spec.negate:
+            return False
+        if not self._spec.pv_sign_aware:
+            return True
+        if not self._feeds_pv:
+            feeds = self._panel.get_property_value(
+                self._device_id, CAPABILITY_CONNECTION, "feeds-device-type"
+            )
+            if device_type_short(feeds or "") == DEVICE_TYPE_PV:
+                self._feeds_pv = True
+        return not self._feeds_pv
+
     def _update_from_value(self, value: str) -> None:
         """Update sensor state from a raw MQTT value."""
         if self.device_class in self._NUMERIC_DEVICE_CLASSES:
@@ -84,7 +112,7 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
                 self._attr_native_value = None
                 self._last_numeric = None
                 return
-            if self._spec.negate:
+            if self._should_negate():
                 numeric = -numeric
             prev = self._last_numeric
             if (

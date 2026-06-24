@@ -869,9 +869,14 @@ def test_map_circuit_meter_emits_four_specs() -> None:
     specs = _map_circuit_meter("circ-1", CAPABILITY_METER, _CIRCUIT_METER_PROPERTIES, {})
     assert len(specs) == 4
     by_id = {s.property_id: s for s in specs}
-    # Power is W with sign-flip to match HA's positive-consumption convention.
+    # Power is W with the load sign-flip default; the runtime PV exception is
+    # carried by pv_sign_aware (resolved in the sensor, not here — SPAN-s48).
     assert by_id["active-power"].native_unit == UnitOfPower.WATT
     assert by_id["active-power"].negate is True
+    assert by_id["active-power"].pv_sign_aware is True
+    # Energies are never sign-aware (their direction is fixed by the counter).
+    assert by_id["imported-energy"].pv_sign_aware is False
+    assert by_id["exported-energy"].pv_sign_aware is False
     # SPAN's panel-perspective: exported-energy = consumption ("Energy", dominant counter);
     # imported-energy = backfeed ("Energy Returned", typically ~0 on a load circuit).
     assert by_id["exported-energy"].name == "Energy"

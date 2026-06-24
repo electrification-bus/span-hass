@@ -96,6 +96,13 @@ class EntitySpec:
     # consumption is positive in HA, matching the Energy Dashboard convention).
     negate: bool = False
 
+    # When True, the sensor suppresses ``negate`` at runtime if the owning
+    # circuit feeds a PV device (``connection/feeds-device-type == pv``). PV-feed
+    # circuits already report generation as positive, so the load sign-flip must
+    # not apply. Decided at runtime, not build time, because feeds-device-type
+    # (a retained sibling property) may not have landed when entities are built.
+    pv_sign_aware: bool = False
+
     # HA DeviceInfo construction. device_type is the short device-class name
     # (one of DEVICE_TYPE_* constants in const.py); via_device_id is the
     # parent's Homie device-id for HA's via_device link (empty for root).
@@ -1053,9 +1060,22 @@ def _map_circuit_meter(
     ``active-power``: the firmware bug that declared kW-but-published-W on the
     legacy data model appears to be fixed in tree-v1 (publishers now declare
     W). The mapper hardcodes W regardless of what the description says, so a
-    panel that hasn't taken the fix still surfaces correctly. ``negate=True``
-    flips the sign so positive = consumption (matching HA's
-    device_consumption convention in the Energy Dashboard Now-tab Sankey).
+    panel that hasn't taken the fix still surfaces correctly. For a load
+    circuit, raw eBus reports consumption as negative, so ``negate=True``
+    flips the sign to positive = consumption (matching HA's device_consumption
+    convention in the Energy Dashboard Now-tab Sankey).
+
+    A circuit commissioned as feeding a PV inverter is the exception: raw eBus
+    already reports generation as POSITIVE, agreeing in sign with the circuit's
+    ``imported-energy`` (= backfeed/generation) counter. Negating it would
+    publish a negative power sensor while the array produces — the HA Energy
+    Dashboard clamps that to zero (flat solar band) and any downstream consumer
+    using the sensor as a production signal gets the wrong sign (SPAN-s48). The
+    PV exception is gated by ``pv_sign_aware``, which the sensor evaluates at
+    runtime against the live ``connection/feeds-device-type`` — NOT at build
+    time, because that retained sibling property is not guaranteed to have
+    landed when entities are first constructed (setup waits for descendant
+    descriptions + circuit names, not for connection values).
 
     ``imported-energy`` / ``exported-energy``: SPAN's panel-perspective
     convention — ``exported-energy`` is energy delivered TO the circuit
@@ -1080,6 +1100,7 @@ def _map_circuit_meter(
             "state_class": SensorStateClass.MEASUREMENT,
             "native_unit": UnitOfPower.WATT,
             "negate": True,
+            "pv_sign_aware": True,
         },
         "imported-energy": {
             "platform": Platform.SENSOR,
