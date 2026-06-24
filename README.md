@@ -4,6 +4,8 @@
 
 A custom [Home Assistant](https://www.home-assistant.io/) integration for [SPAN](https://www.span.io/) smart electrical panels, using the [SPAN eBus API](https://github.com/spanio/SPAN-API-Client-Docs).
 
+> **Disclaimer.** This is an independent community integration. It uses SPAN's public eBus API and is intended to integrate SPAN products with Home Assistant, but it is **not provided, approved, or endorsed by SPAN**. "SPAN" and the SPAN logo are trademarks of their respective owner; usage here is descriptive (identifying the products this integration works with), not a claim of affiliation.
+
 `span_ebus` uses **local push** over MQTT — the panel streams real-time updates directly to Home Assistant with no cloud dependency and no polling interval. Every circuit power change, relay toggle, and energy accumulation arrives instantly via the panel's built-in MQTT broker.
 
 > **Active alpha.** The author runs this integration against three SPAN panels in a daisy-chain cascade in their own home; v0.2.0 (2026-06-23) is the first release against SPAN firmware r202627's new parent/child data model. Install base outside the author's home is currently zero — if you adopt the integration you're an early user. Please report any issues on the [GitHub issue tracker](https://github.com/electrification-bus/span-hass/issues).
