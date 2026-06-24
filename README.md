@@ -10,7 +10,7 @@ A custom [Home Assistant](https://www.home-assistant.io/) integration for [SPAN]
 
 ## Choosing a SPAN integration
 
-Two community Home Assistant integrations exist for SPAN panels — choose deliberately:
+Two community Home Assistant integrations exist for SPAN panels:
 
 - **[SpanPanel/span](https://github.com/SpanPanel/span)** — the established and most widely-adopted SPAN integration. Available in HACS, broad community support, several years of production use across many homes. **This is the right choice for most users.**
 - **`electrification-bus/span-hass`** (this integration) — newer. Uses the SPAN local eBus MQTT API (the Homie 5 parent/child tree publication documented at [SPAN-API-Client-Docs](https://github.com/spanio/SPAN-API-Client-Docs)). Requires SPAN firmware r202627 or later. Single-user install base today.
