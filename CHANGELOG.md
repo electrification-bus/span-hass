@@ -4,6 +4,12 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-06-24
+
+### Fixed
+
+- **PV-feed circuit power sign.** A circuit commissioned as feeding a PV inverter now reports its `active-power` as a positive value while the array generates — agreeing in sign with the circuit's energy counter — instead of negative. The load-circuit sign convention (consumption is positive) was being applied to every circuit, so solar production surfaced as negative power; the Home Assistant Energy Dashboard clamps that to zero, flattening the solar band in the "Now" power-sources graph. The PV exception is now resolved at runtime from the circuit's `connection/feeds-device-type`, so it holds even when that retained value arrives after the entity is first built (a startup-ordering race that a build-time check missed).
+
 ## [0.2.0] — 2026-06-23
 
 The 0.2.0 release migrates the integration to the **parent/child Homie 5 data model** that lands in SPAN firmware r202627. The panel publishes itself as a tree — panel root + per-lug / per-BESS / per-MID / per-PV / per-EVSE / per-circuit child devices — and the integration walks that tree, registering one HA device per Homie device. The old flat data model is gone.
@@ -90,6 +96,7 @@ Initial alpha release of the SPAN Panel (eBus) Home Assistant custom integration
 - The SPAN import/export energy direction convention (circuit `exported-energy` = consumption, upstream `imported-energy` = grid consumption) is not documented in the SPAN API and was reverse-engineered. See `README.md` §"Energy Flows and Import/Export" and the energy-counter monotonicity docs in [`docs/`](docs/).
 - After installing the integration for the first time, HA may need to be restarted **twice** before mDNS discovery picks up panels — a known limitation of how HA loads zeroconf service types for custom integrations on first install.
 
-[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/electrification-bus/span-hass/releases/tag/v0.2.1
 [0.2.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.2.0
 [0.1.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.1.0
