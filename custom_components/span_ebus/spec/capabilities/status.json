@@ -1,0 +1,28 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.status",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "fault-state": {
+      "datatype": "enum",
+      "format": "OK,FAULT,UNKNOWN",
+      "req": "MAY",
+      "description": "Overall fault state: `OK`, `FAULT`, `UNKNOWN`. Publishers MAY extend the value set via `$format` for device-specific fault categories."
+    },
+    "communication-state": {
+      "datatype": "enum",
+      "format": "OK,DEGRADED,LOST,UNKNOWN",
+      "req": "MAY",
+      "description": "The publisher's view of its own communication / link health, to the device it represents (for a proxy) or to its backhaul (for a native device): `OK`, `DEGRADED`, `LOST`, `UNKNOWN`. Orthogonal to whether the eBus publisher is currently reporting to *its* consumers."
+    },
+    "active-alerts": {
+      "datatype": "string",
+      "req": "MAY",
+      "description": "Human-readable current alert(s), when the device exposes them."
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ebus.energy/schemas/property-catalog.json",
+  "title": "eBus capability-catalog property definitions",
+  "description": "Machine-readable property catalog for one energy.ebus.capability.* capability. Generated from the capability's Markdown catalog and verified against it; see conventions/property-json.md. This schema constrains STRUCTURE only. The semantic invariants (unit present iff numeric, enum carries a format, every type registered in registries/capability-types.md, monotonic conformance) are enforced by tools/check-property-catalogs.py, not here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "capability", "version", "properties"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": { "const": "property-schema-v1" },
+    "kind": { "const": "capability-catalog" },
+    "capability": { "type": "string", "pattern": "^energy\\.ebus\\.capability\\.[a-z0-9-]+$" },
+    "version": { "type": "string" },
+    "status": { "type": "string" },
+    "date": { "type": "string" },
+    "req_default": { "$ref": "#/$defs/req" },
+    "reference_direction_default": { "type": "string" },
+    "properties": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/property" }
+    },
+    "property_patterns": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/propertyPattern" }
+    }
+  },
+  "$defs": {
+    "req": { "enum": ["MUST", "SHOULD", "MAY"] },
+    "datatype": {
+      "enum": ["integer", "float", "boolean", "string", "enum", "color", "datetime", "duration", "json"]
+    },
+    "property": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["datatype"],
+      "properties": {
+        "name": { "type": "string" },
+        "datatype": { "$ref": "#/$defs/datatype" },
+        "unit": { "type": "string" },
+        "format": { "type": "string" },
+        "settable": { "type": "boolean" },
+        "req": { "$ref": "#/$defs/req" },
+        "description": { "type": "string" }
+      }
+    },
+    "propertyPattern": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["datatype", "expand"],
+      "properties": {
+        "name": { "type": "string" },
+        "datatype": { "$ref": "#/$defs/datatype" },
+        "unit": { "type": "string" },
+        "format": { "type": "string" },
+        "settable": { "type": "boolean" },
+        "req": { "$ref": "#/$defs/req" },
+        "description": { "type": "string" },
+        "expand": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "The suffix tokens the pattern's {a,b,c}-style placeholder expands over; a concrete property id substitutes each token for the braces, e.g. voltage-{a,b,c} with [a,b,c] yields voltage-a / voltage-b / voltage-c."
+        }
+      }
+    }
+  }
+}

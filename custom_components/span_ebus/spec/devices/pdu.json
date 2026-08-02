@@ -1,0 +1,30 @@
+{
+  "$schema": "https://ebus.energy/schemas/device-profile.json",
+  "schema_version": "property-schema-v1",
+  "kind": "device-profile",
+  "device": "energy.ebus.device.pdu",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-27",
+  "device_types": {
+    "energy.ebus.device.pdu": {
+      "capabilities": {
+        "info": {
+          "catalog": "energy.ebus.capability.info",
+          "catalog_version": "0.2",
+          "req": "MUST"
+        },
+        "meter": {
+          "catalog": "energy.ebus.capability.meter",
+          "catalog_version": "0.2",
+          "req": "MAY"
+        },
+        "status": {
+          "catalog": "energy.ebus.capability.status",
+          "catalog_version": "0.1",
+          "req": "MAY"
+        }
+      }
+    }
+  }
+}

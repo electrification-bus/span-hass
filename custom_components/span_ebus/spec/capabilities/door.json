@@ -1,0 +1,17 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.door",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "state": {
+      "datatype": "enum",
+      "format": "OPEN,CLOSED,UNKNOWN",
+      "req": "MUST",
+      "description": "Door state: `OPEN`, `CLOSED`, `UNKNOWN`."
+    }
+  }
+}

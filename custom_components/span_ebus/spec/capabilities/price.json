@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.price",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-10",
+  "properties": {
+    "import-price": {
+      "datatype": "json",
+      "req": "MAY",
+      "description": "The price to import (buy) energy: a JSON array of one or more price-window objects (schema below), ordered by `start-time`. Absent when no import price is signaled."
+    },
+    "export-price": {
+      "datatype": "json",
+      "req": "MAY",
+      "description": "The price to export (feed-in / sell) energy, same schema. Absent when no export price is signaled."
+    }
+  }
+}

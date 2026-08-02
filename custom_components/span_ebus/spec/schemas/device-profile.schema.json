@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ebus.energy/schemas/device-profile.json",
+  "title": "eBus device profile (advisory composition)",
+  "description": "An advisory composition for one energy.ebus.device.* model: which capabilities each device type in the model typically publishes, and the spec's capability-level Req guidance where it states one. It is NOT an exhaustive or required property set. Properties are MAY by default (framework principle 8); a publisher publishes what it has (principle 3) and its runtime Homie `$description` is authoritative for what it actually publishes. How to publish each individual property lives in the capability catalogs (kind: capability-catalog). Generated from the data-model Markdown; see conventions/property-json.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "device", "version", "device_types"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": { "const": "property-schema-v1" },
+    "kind": { "const": "device-profile" },
+    "device": { "type": "string", "pattern": "^energy\\.ebus\\.device\\.[a-z0-9-]+$" },
+    "version": { "type": "string" },
+    "status": { "type": "string" },
+    "date": { "type": "string" },
+    "device_types": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^energy\\.ebus\\.device\\.[a-z0-9-]+$" },
+      "additionalProperties": { "$ref": "#/$defs/deviceType" }
+    }
+  },
+  "$defs": {
+    "req": { "enum": ["MUST", "SHOULD", "MAY"] },
+    "deviceType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilities"],
+      "properties": {
+        "role": { "enum": ["parent", "child"] },
+        "capabilities": {
+          "type": "object",
+          "description": "capability node id -> how this device type composes that capability",
+          "additionalProperties": { "$ref": "#/$defs/capabilityUse" }
+        }
+      }
+    },
+    "capabilityUse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalog"],
+      "properties": {
+        "catalog": { "type": "string", "pattern": "^energy\\.ebus\\.capability\\.[a-z0-9-]+$" },
+        "catalog_version": { "type": "string" },
+        "req": {
+          "$ref": "#/$defs/req",
+          "description": "the model's capability-level conformance guidance for this device type, where it states one; absent means the model does not (the default is MAY, per framework principle 8)"
+        }
+      }
+    }
+  }
+}

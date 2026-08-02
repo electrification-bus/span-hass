@@ -1,0 +1,16 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.grid-event",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-10",
+  "properties": {
+    "events": {
+      "datatype": "json",
+      "req": "MAY",
+      "description": "The current schedule of grid events: a JSON array of one or more event objects (schema below), ordered by `start-time`. Absent, or an empty array, when no events are signaled."
+    }
+  }
+}

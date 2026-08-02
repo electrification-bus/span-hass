@@ -1,0 +1,38 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.grid",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "islanding-state": {
+      "datatype": "enum",
+      "format": "ON_GRID,OFF_GRID,UNKNOWN",
+      "req": "MAY",
+      "description": "Whether the site is connected to or islanded from the utility: `ON_GRID`, `OFF_GRID`, `UNKNOWN`. Reflects the interconnect **relay position**. Published by the islanding authority (a MID); a device that does not sense the interconnect (a utility meter) does not publish it."
+    },
+    "grid-state": {
+      "datatype": "enum",
+      "format": "UP,DOWN,DEGRADED,UNKNOWN",
+      "req": "MAY",
+      "description": "Sensed condition of the utility AC supply: `UP`, `DOWN`, `DEGRADED`, `UNKNOWN`. `DEGRADED` (outside the `UP` band but not a declared outage) is optional; a publisher SHOULD distinguish it when it has the measurement capability (a black-box proxied MID typically reports only `UP` / `DOWN` / `UNKNOWN`). Published by any device that senses the supply (a MID, a utility meter)."
+    },
+    "grid-forming-entity": {
+      "datatype": "string",
+      "req": "MAY",
+      "description": "Identity of the device establishing the AC voltage / frequency reference: `\"GRID\"` when grid-tied, or the Homie device ID of the grid-forming device (typically the DER parent device: a BESS, a V2H EVSE, a generator) when islanded. Empty string or absent during transitions or when unknown. Published by the islanding authority (a MID)."
+    },
+    "last-outage-time": {
+      "datatype": "datetime",
+      "req": "MAY",
+      "description": "Timestamp (ISO-8601 UTC) of the most recent transition from `UP` / `DEGRADED` to `DOWN` observed."
+    },
+    "last-restoration-time": {
+      "datatype": "datetime",
+      "req": "MAY",
+      "description": "Timestamp (ISO-8601 UTC) of the most recent transition from `DOWN` to `UP` / `DEGRADED` observed."
+    }
+  }
+}

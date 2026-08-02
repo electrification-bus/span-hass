@@ -1,0 +1,30 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.output-island",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "state": {
+      "datatype": "enum",
+      "format": "PASS_THROUGH,ON_BATTERY,NO_OUTPUT,UNKNOWN",
+      "req": "SHOULD",
+      "description": "Current output state: `PASS_THROUGH` (input present; outlets powered through from the input, battery idle or charging), `ON_BATTERY` (islanded; outlets powered from battery / solar, isolated from the input), `NO_OUTPUT` (no input and no output), `UNKNOWN`."
+    },
+    "mode": {
+      "datatype": "enum",
+      "format": "FOLLOW_INPUT,ISLAND",
+      "settable": true,
+      "req": "MAY",
+      "description": "Requested output mode: `FOLLOW_INPUT` (normal; island automatically only on loss of input) or `ISLAND` (force the device-output island now, running the outlets from battery even with input present)."
+    },
+    "transfer-time": {
+      "datatype": "float",
+      "unit": "ms",
+      "req": "MAY",
+      "description": "Nameplate input-to-battery switchover time (the UPS ride-through spec)."
+    }
+  }
+}

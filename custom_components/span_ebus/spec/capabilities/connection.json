@@ -1,0 +1,72 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.connection",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-05",
+  "properties": {
+    "feeds-device-id": {
+      "datatype": "string",
+      "req": "MAY",
+      "description": "Homie device ID of the device wired *downstream* of this connection point. Published only when the specific downstream device is known. Omitted when unknown, when mixed-load with no commissioned downstream device, or when nothing is connected."
+    },
+    "feeds-device-type": {
+      "datatype": "string",
+      "req": "MAY",
+      "description": "`$description.type` of the downstream device (e.g. `energy.ebus.device.bess`, `.pv`, `.evse`, `.water-heater`, `.distribution-enclosure`, or a DER sub-device such as `.battery`). Published when the class is known even if the specific ID is not."
+    },
+    "feeds-device-status": {
+      "datatype": "enum",
+      "format": "OK,LOST,DEGRADED",
+      "req": "MAY",
+      "description": "Publisher's view of communication-link health to the downstream device: `OK`, `LOST`, `DEGRADED`. Published only when `feeds-device-id` is published and the publisher has a communication integration with that device."
+    },
+    "fed-by-device-id": {
+      "datatype": "string",
+      "req": "MAY",
+      "description": "Homie device ID of the device wired *upstream* of this connection point. Published only when known (e.g. an upstream BESS wired between the utility and the enclosure, or an upstream sister enclosure in a chain). Omitted when the upstream side is the utility, an implicit busbar, or unknown."
+    },
+    "fed-by-device-type": {
+      "datatype": "string",
+      "req": "MAY",
+      "description": "`$description.type` of the upstream device. Published with `fed-by-device-id`."
+    },
+    "fed-by-device-status": {
+      "datatype": "enum",
+      "format": "OK,LOST,DEGRADED",
+      "req": "MAY",
+      "description": "Publisher's view of communication-link health to the upstream device. Same value domain and applicability as `feeds-device-status`."
+    },
+    "backed-up": {
+      "datatype": "enum",
+      "format": "BACKED_UP,NOT_BACKED_UP,UNKNOWN",
+      "req": "MAY",
+      "description": "Whether this path is on the backup (island) side of a microgrid interconnect device, and so stays energized off-grid: `BACKED_UP`, `NOT_BACKED_UP`, `UNKNOWN`. A wiring fact (which side of the interconnect), distinct from `load-shed/priority` (a shedding *policy*) and `grid/islanding-state` (the present *state*)."
+    },
+    "feeds-role": {
+      "datatype": "enum",
+      "format": "LOADS,SUBPANEL,SOLAR,STORAGE,GENERATOR,MIXED,UNUSED",
+      "req": "MAY",
+      "description": "Summary role of a downstream node that is **not** published as its own eBus device, or that is surveyed-empty: `LOADS`, `SUBPANEL`, `SOLAR`, `STORAGE`, `GENERATOR`, `MIXED`, `UNUSED`. `UNUSED` positively records \"surveyed, nothing connected\" (which absence cannot express). Complements `feeds-device-*`, which is used when the downstream *is* an eBus device."
+    },
+    "service-rating": {
+      "datatype": "integer",
+      "unit": "A",
+      "req": "MAY",
+      "description": "Utility service rating (service size) at a service-entrance connection point. Distinct from `pcs/feed-import-limit` (a PCS enforcement limit) and `breaker/rating` (a main breaker)."
+    },
+    "overcurrent-protection": {
+      "datatype": "integer",
+      "unit": "A",
+      "req": "MAY",
+      "description": "Overcurrent-protection rating at a connection point that is not itself a breaker-protected circuit (for example a feeder conductor landing in unprotected lugs). Where the connection point *is* a breaker-protected circuit, the rating is `breaker/rating` instead."
+    },
+    "count": {
+      "datatype": "integer",
+      "req": "MAY",
+      "description": "When the connected node aggregates multiple physical units behind a *single* connection point (e.g. 6 battery packs in one BESS, or 4 microinverters on one AC string reported as one solar device), how many."
+    }
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.dispatch",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "charge-rate-set": {
+      "datatype": "float",
+      "unit": "W",
+      "settable": true,
+      "req": "MAY",
+      "description": "Requested charge rate. Positive = charge at this rate; `0` = do not charge. Honored when conditions allow (hardware limits, SOC constraints)."
+    },
+    "discharge-rate-set": {
+      "datatype": "float",
+      "unit": "W",
+      "settable": true,
+      "req": "MAY",
+      "description": "Requested discharge rate. Positive = discharge at this rate; `0` = do not discharge. Same conditional-honoring semantics."
+    },
+    "max-soc-set": {
+      "datatype": "float",
+      "unit": "%",
+      "settable": true,
+      "req": "MAY",
+      "description": "Upper SOC limit (0-100); the device stops charging at this value."
+    },
+    "min-soc-set": {
+      "datatype": "float",
+      "unit": "%",
+      "settable": true,
+      "req": "MAY",
+      "description": "Lower SOC limit (0-100); the device stops discharging at this value."
+    },
+    "backup-reserve": {
+      "datatype": "float",
+      "unit": "%",
+      "settable": true,
+      "req": "MAY",
+      "description": "Off-grid energy reserve (0-100): the SOC floor held back for backup. A backup-mode policy; see the interaction note below."
+    },
+    "dispatch-watchdog-timeout": {
+      "datatype": "integer",
+      "unit": "s",
+      "req": "MAY",
+      "description": "How long a watchdog-class setpoint persists before reverting to `dispatch-safe-default`. Published so controllers know the refresh cadence to keep dispatch active."
+    },
+    "dispatch-safe-default": {
+      "datatype": "enum",
+      "format": "IDLE,VENDOR_DEFAULT,LAST_VALUE",
+      "req": "MAY",
+      "description": "What the device reverts to after a watchdog-class setpoint expires: `IDLE` (both rates effectively `0`), `VENDOR_DEFAULT` (vendor-internal logic resumes), `LAST_VALUE` (rare; slow-response systems only)."
+    },
+    "dispatch-state": {
+      "datatype": "enum",
+      "format": "IDLE,CHARGING_DISPATCHED,DISCHARGING_DISPATCHED,VENDOR_CONTROLLED,VENDOR_DEFAULT,UNKNOWN",
+      "req": "MAY",
+      "description": "Current dispatch status: `IDLE`, `CHARGING_DISPATCHED`, `DISCHARGING_DISPATCHED`, `VENDOR_CONTROLLED` (no external setpoint, or one expired to `VENDOR_DEFAULT`), `UNKNOWN`."
+    },
+    "dispatch-controller": {
+      "datatype": "string",
+      "req": "MAY",
+      "description": "Identifier of the most recent client to successfully write a settable in this capability (MQTT client ID, issuing device ID, or authenticated user). Empty / absent when no dispatch is active."
+    },
+    "charge-rate-actual": {
+      "datatype": "float",
+      "unit": "W",
+      "req": "MAY",
+      "description": "Observed instantaneous charge rate. Distinguishes \"honoring the setpoint\" from \"hardware-limited to a different rate\"."
+    },
+    "discharge-rate-actual": {
+      "datatype": "float",
+      "unit": "W",
+      "req": "MAY",
+      "description": "Observed instantaneous discharge rate."
+    },
+    "available-charge-power": {
+      "datatype": "float",
+      "unit": "W",
+      "req": "MAY",
+      "description": "Currently available charge-power headroom."
+    },
+    "available-discharge-power": {
+      "datatype": "float",
+      "unit": "W",
+      "req": "MAY",
+      "description": "Currently available discharge-power headroom."
+    }
+  }
+}

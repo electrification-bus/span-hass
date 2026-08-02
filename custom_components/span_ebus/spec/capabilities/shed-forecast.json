@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.shed-forecast",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "total-time-remaining": {
+      "datatype": "integer",
+      "unit": "min",
+      "req": "SHOULD",
+      "description": "At current state of energy, total time before all backed-up loads go unpowered."
+    },
+    "time-to-priority-shed": {
+      "datatype": "integer",
+      "unit": "min",
+      "req": "SHOULD",
+      "description": "At current state of energy, time until priority-shed (e.g. `SOC_THRESHOLD`) circuits are auto-shed."
+    },
+    "full-charge-total-time-remaining": {
+      "datatype": "integer",
+      "unit": "min",
+      "req": "SHOULD",
+      "description": "At 100% state of energy, total backup-duration capability."
+    },
+    "full-charge-time-to-priority-shed": {
+      "datatype": "integer",
+      "unit": "min",
+      "req": "SHOULD",
+      "description": "At 100% state of energy, capability time until the priority-shed event."
+    },
+    "confidence": {
+      "datatype": "enum",
+      "format": "LOW,MEDIUM,HIGH",
+      "req": "SHOULD",
+      "description": "The algorithm's self-assessed confidence: `LOW`, `MEDIUM`, `HIGH`. Reflects accumulated usage history."
+    }
+  }
+}

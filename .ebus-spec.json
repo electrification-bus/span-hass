@@ -1,0 +1,32 @@
+{
+  "$schema": "https://ebus.energy/schemas/ebus-spec.json",
+  "spec_repo": "https://github.com/electrification-bus/specification",
+  "synced_commit": "16b00305cd4f5f49e448b4f9a7278e34939c0deb",
+  "synced_date": "2026-08-02",
+  "role": "controller",
+  "framework": "0.7",
+  "implements": {
+    "capabilities": {
+      "info": "0.2",
+      "door": "0.1",
+      "status": "0.1",
+      "meter": "0.2",
+      "connection": "0.1",
+      "switch": "0.1",
+      "breaker": "0.1",
+      "load-shed": "0.3",
+      "pcs": "0.3",
+      "power-flows": "0.1",
+      "shed": "0.2",
+      "shed-forecast": "0.1",
+      "soc": "0.1",
+      "grid": "0.1"
+    },
+    "devices": {
+      "circuit": "0.3",
+      "distribution-enclosure": "0.12",
+      "bess": "0.14"
+    }
+  },
+  "notes": "Vendored eBus specification catalogs (public: electrification-bus/specification) under custom_components/span_ebus/spec/. Tracks the tree-v1 (parent/child) capability model at the commit the SPAN ebus-panel-adapter targets. Regenerate with scripts/sync_spec.py after bumping the pin. lugs/pv/mid are tree roles with no standalone spec device profile, so they are covered by the capabilities they carry."
+}

@@ -1,0 +1,201 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.meter",
+  "version": "0.2",
+  "status": "DRAFT",
+  "date": "2026-07-27",
+  "properties": {
+    "active-power": {
+      "datatype": "float",
+      "unit": "W",
+      "req": "MAY",
+      "description": "Total active power. Sign per the reference-direction rule below."
+    },
+    "reactive-power": {
+      "datatype": "float",
+      "unit": "var",
+      "req": "MAY",
+      "description": "Total reactive power."
+    },
+    "apparent-power": {
+      "datatype": "float",
+      "unit": "VA",
+      "req": "MAY",
+      "description": "Total apparent power."
+    },
+    "power-factor": {
+      "datatype": "float",
+      "format": "-1.0:1.0",
+      "req": "MAY",
+      "description": "System power factor, signed: positive = lagging (inductive), negative = leading (capacitive); range `[-1.0, 1.0]`."
+    },
+    "frequency": {
+      "datatype": "float",
+      "unit": "Hz",
+      "req": "MAY",
+      "description": "Line frequency."
+    },
+    "voltage": {
+      "datatype": "float",
+      "unit": "V",
+      "req": "MAY",
+      "description": "RMS voltage at a single-point meter (one measured conductor, e.g. a branch circuit or a device's single AC boundary). A split-phase or three-phase meter uses the per-conductor `voltage-{a,b,c}` instead."
+    },
+    "current": {
+      "datatype": "float",
+      "unit": "A",
+      "req": "MAY",
+      "description": "RMS current at a single-point meter (one measured conductor). A split-phase or three-phase meter uses the per-conductor `current-{a,b,c,n}` instead."
+    },
+    "imported-energy": {
+      "datatype": "float",
+      "unit": "Wh",
+      "req": "MAY",
+      "description": "Cumulative active energy imported (into the metered device / consumed). Monotonically non-decreasing."
+    },
+    "exported-energy": {
+      "datatype": "float",
+      "unit": "Wh",
+      "req": "MAY",
+      "description": "Cumulative active energy exported (out of the metered device / produced or backfed). Monotonically non-decreasing."
+    },
+    "imported-reactive-energy": {
+      "datatype": "float",
+      "unit": "varh",
+      "req": "MAY",
+      "description": "Cumulative reactive energy imported."
+    },
+    "exported-reactive-energy": {
+      "datatype": "float",
+      "unit": "varh",
+      "req": "MAY",
+      "description": "Cumulative reactive energy exported."
+    },
+    "apparent-energy-imported": {
+      "datatype": "float",
+      "unit": "VAh",
+      "req": "MAY",
+      "description": "Cumulative apparent energy imported."
+    },
+    "apparent-energy-exported": {
+      "datatype": "float",
+      "unit": "VAh",
+      "req": "MAY",
+      "description": "Cumulative apparent energy exported."
+    }
+  },
+  "property_patterns": {
+    "voltage-{a,b,c}": {
+      "datatype": "float",
+      "unit": "V",
+      "req": "MAY",
+      "description": "RMS voltage on the named phase, line-to-neutral (or line-to-virtual-neutral on a delta service).",
+      "expand": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "current-{a,b,c,n}": {
+      "datatype": "float",
+      "unit": "A",
+      "req": "MAY",
+      "description": "RMS current on the named conductor. Neutral current (`current-n`) may be measured or imputed.",
+      "expand": [
+        "a",
+        "b",
+        "c",
+        "n"
+      ]
+    },
+    "active-power-{a,b,c}": {
+      "datatype": "float",
+      "unit": "W",
+      "req": "MAY",
+      "description": "Per-phase active power. Sign matches the system `active-power`.",
+      "expand": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "reactive-power-{a,b,c}": {
+      "datatype": "float",
+      "unit": "var",
+      "req": "MAY",
+      "description": "Per-phase reactive power.",
+      "expand": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "apparent-power-{a,b,c}": {
+      "datatype": "float",
+      "unit": "VA",
+      "req": "MAY",
+      "description": "Per-phase apparent power.",
+      "expand": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "power-factor-{a,b,c}": {
+      "datatype": "float",
+      "req": "MAY",
+      "description": "Per-phase power factor, signed as for the system value.",
+      "expand": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "voltage-angle-{a,b,c}": {
+      "datatype": "float",
+      "unit": "°",
+      "req": "MAY",
+      "description": "Voltage angle relative to phase-A voltage (`voltage-angle-a` = `0`).",
+      "expand": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "current-angle-{a,b,c}": {
+      "datatype": "float",
+      "unit": "°",
+      "req": "MAY",
+      "description": "Current angle relative to the same-phase voltage.",
+      "expand": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "imported-energy-{a,b,c}": {
+      "datatype": "float",
+      "unit": "Wh",
+      "req": "MAY",
+      "description": "Per-conductor cumulative imported energy.",
+      "expand": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "exported-energy-{a,b,c}": {
+      "datatype": "float",
+      "unit": "Wh",
+      "req": "MAY",
+      "description": "Per-conductor cumulative exported energy.",
+      "expand": [
+        "a",
+        "b",
+        "c"
+      ]
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.soc",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "soc": {
+      "datatype": "float",
+      "unit": "%",
+      "req": "MAY",
+      "description": "State of charge: the fraction of capacity currently held (`0` = empty, `100` = full). A dimensionless ratio, comparable across all reservoirs."
+    },
+    "soe": {
+      "datatype": "float",
+      "unit": "energy",
+      "req": "MAY",
+      "description": "State of energy: the energy currently stored and available to draw (the discharge side). Reported in the device's native energy unit (a BESS in kWh electrical, a water heater in Wh thermal)."
+    },
+    "total-energy-storage": {
+      "datatype": "float",
+      "unit": "energy",
+      "req": "MAY",
+      "description": "The reservoir's total energy capacity (empty to full), in the same unit as `soe`."
+    },
+    "loadup-headroom": {
+      "datatype": "float",
+      "unit": "energy",
+      "req": "MAY",
+      "description": "The energy the reservoir can absorb **now** (the charge side), approximately `total-energy-storage − soe`. The dispatchable charge a load-up / charge action can take on."
+    }
+  }
+}

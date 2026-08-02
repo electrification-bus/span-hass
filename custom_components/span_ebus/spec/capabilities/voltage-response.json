@@ -1,0 +1,46 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.voltage-response",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "nominal-voltage": {
+      "datatype": "float",
+      "unit": "V",
+      "req": "SHOULD",
+      "description": "Reference voltage for the per-unit thresholds (e.g. `120` or `240`)."
+    },
+    "undervoltage-threshold": {
+      "datatype": "float",
+      "unit": "pu",
+      "req": "SHOULD",
+      "description": "The voltage at or below which the publisher reduces its import current (e.g. `0.95`)."
+    },
+    "restore-threshold": {
+      "datatype": "float",
+      "unit": "pu",
+      "req": "SHOULD",
+      "description": "The voltage at or above which normal operation resumes; MUST be `>= undervoltage-threshold`. The gap is the deadband that prevents chatter (e.g. `0.96`)."
+    },
+    "reduced-import-limit": {
+      "datatype": "float",
+      "unit": "A",
+      "req": "SHOULD",
+      "description": "The import current limit the publisher applies while voltage is below `undervoltage-threshold`. (A publisher MAY instead express this as a fraction of the prevailing limit via `response-curve`.)"
+    },
+    "mode": {
+      "datatype": "enum",
+      "format": "OFF,AUTONOMOUS",
+      "req": "MAY",
+      "description": "`OFF` (function present but not acting), `AUTONOMOUS` (the publisher enforces the setpoint locally)."
+    },
+    "response-curve": {
+      "datatype": "json",
+      "req": "MAY",
+      "description": "**Optional richer form.** A piecewise Volt-Watt-style curve, one atomic object (schema below), for a proportional rather than single-threshold response. When present, it supersedes the scalar threshold properties above."
+    }
+  }
+}

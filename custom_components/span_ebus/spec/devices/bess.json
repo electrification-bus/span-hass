@@ -1,0 +1,140 @@
+{
+  "$schema": "https://ebus.energy/schemas/device-profile.json",
+  "schema_version": "property-schema-v1",
+  "kind": "device-profile",
+  "device": "energy.ebus.device.bess",
+  "version": "0.14",
+  "status": "DRAFT",
+  "date": "2026-07-30",
+  "device_types": {
+    "energy.ebus.device.battery": {
+      "role": "child",
+      "capabilities": {
+        "info": {
+          "catalog": "energy.ebus.capability.info",
+          "catalog_version": "0.2",
+          "req": "MUST"
+        },
+        "meter": {
+          "catalog": "energy.ebus.capability.meter",
+          "catalog_version": "0.2",
+          "req": "SHOULD"
+        },
+        "soc": {
+          "catalog": "energy.ebus.capability.soc",
+          "catalog_version": "0.1",
+          "req": "MUST"
+        },
+        "status": {
+          "catalog": "energy.ebus.capability.status",
+          "catalog_version": "0.1",
+          "req": "MAY"
+        }
+      }
+    },
+    "energy.ebus.device.bess": {
+      "role": "parent",
+      "capabilities": {
+        "dispatch": {
+          "catalog": "energy.ebus.capability.dispatch",
+          "catalog_version": "0.1",
+          "req": "MAY"
+        },
+        "info": {
+          "catalog": "energy.ebus.capability.info",
+          "catalog_version": "0.2",
+          "req": "MUST"
+        },
+        "meter": {
+          "catalog": "energy.ebus.capability.meter",
+          "catalog_version": "0.2",
+          "req": "MUST"
+        },
+        "output-island": {
+          "catalog": "energy.ebus.capability.output-island",
+          "catalog_version": "0.1",
+          "req": "MAY"
+        },
+        "power-flows": {
+          "catalog": "energy.ebus.capability.power-flows",
+          "catalog_version": "0.1",
+          "req": "MAY"
+        },
+        "soc": {
+          "catalog": "energy.ebus.capability.soc",
+          "catalog_version": "0.1",
+          "req": "MUST"
+        },
+        "status": {
+          "catalog": "energy.ebus.capability.status",
+          "catalog_version": "0.1",
+          "req": "MUST"
+        }
+      }
+    },
+    "energy.ebus.device.inverter": {
+      "role": "child",
+      "capabilities": {
+        "grid-forming": {
+          "catalog": "energy.ebus.capability.grid-forming",
+          "catalog_version": "0.1",
+          "req": "MAY"
+        },
+        "info": {
+          "catalog": "energy.ebus.capability.info",
+          "catalog_version": "0.2",
+          "req": "MUST"
+        },
+        "meter": {
+          "catalog": "energy.ebus.capability.meter",
+          "catalog_version": "0.2",
+          "req": "SHOULD"
+        },
+        "status": {
+          "catalog": "energy.ebus.capability.status",
+          "catalog_version": "0.1",
+          "req": "MAY"
+        }
+      }
+    },
+    "energy.ebus.device.meter": {
+      "role": "child",
+      "capabilities": {
+        "info": {
+          "catalog": "energy.ebus.capability.info",
+          "catalog_version": "0.2",
+          "req": "MUST"
+        },
+        "meter": {
+          "catalog": "energy.ebus.capability.meter",
+          "catalog_version": "0.2",
+          "req": "MUST"
+        }
+      }
+    },
+    "energy.ebus.device.mid": {
+      "role": "child",
+      "capabilities": {
+        "grid": {
+          "catalog": "energy.ebus.capability.grid",
+          "catalog_version": "0.1",
+          "req": "MUST"
+        },
+        "info": {
+          "catalog": "energy.ebus.capability.info",
+          "catalog_version": "0.2",
+          "req": "MUST"
+        },
+        "status": {
+          "catalog": "energy.ebus.capability.status",
+          "catalog_version": "0.1",
+          "req": "MAY"
+        }
+      }
+    },
+    "energy.ebus.device.outlet": {
+      "role": "child",
+      "capabilities": {}
+    }
+  }
+}
