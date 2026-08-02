@@ -13,13 +13,17 @@ device-class dimension matters because the same capability differs by host
 import-limit families; enclosure ``meter`` = voltages vs lugs ``meter`` =
 per-leg currents + power + energy).
 
-``tests/test_semantics_coverage.py`` keeps this table honest: every property
-the live-wire fixtures carry (everything the panels actually publish) must be
-mapped here, so a renamed or added wire property surfaces as a loud test failure
-rather than a silently dropped entity. SPAN publishes many properties beyond the
-spec catalogs (the whole ``status`` node, for one), so the live wire, not the
-catalog, is the coverage oracle. The vendored catalogs under ``spec/`` anchor the
-pinned spec version (``.ebus-spec.json``) and are the units/format reference.
+``tests/test_semantics_coverage.py`` keeps this table honest against the
+adapter's own generated schema (``GET /api/v2/homie/schema``, vendored as
+``tests/fixtures/adapter-homie-schema.json``): every device class / capability /
+property the ebus-panel-adapter can publish must be mapped here, so a renamed or
+added property surfaces as a loud test failure rather than a silently dropped
+entity. The adapter schema, not the upstream spec (aspirational) nor only the
+live wire (only instantiated devices), is the coverage oracle: it is what
+"track the adapter first" means, and it carries device classes the reference
+panels lack (EVSE) and forward-declared capabilities (``doe``). The vendored
+public spec catalogs under ``spec/`` anchor the pinned version (``.ebus-spec.json``)
+and are the units/format reference.
 """
 
 from __future__ import annotations
@@ -253,18 +257,18 @@ SEMANTICS: dict[tuple[str, str, str], Row] = {
 }
 
 
-# The distribution-enclosure ``pcs`` import-limit families (import / feed-import /
-# operator-import / requested-import / off-grid-import), each with a limit value
-# (A), an -enablement enum, and an -active boolean. Generated to avoid 18 near
-# identical rows.
-_PCS_LIMITS = {
-    "import-limit": "Import Limit",
+# distribution-enclosure ``pcs``: the aggregate ``import-limit`` ceiling (value
+# only), four sub-limit families that each add an -enablement enum + an -active
+# boolean, plus the enabled / active / binding-constraint master flags. Generated
+# to avoid ~15 near-identical rows.
+SEMANTICS[("distribution-enclosure", "pcs", "import-limit")] = _measure("Import Limit", SensorDeviceClass.CURRENT)
+_PCS_LIMIT_FAMILIES = {
     "feed-import-limit": "Feed Import Limit",
     "operator-import-limit": "Operator Import Limit",
     "requested-import-limit": "Requested Import Limit",
     "off-grid-import-limit": "Off-Grid Import Limit",
 }
-for _lim, _label in _PCS_LIMITS.items():
+for _lim, _label in _PCS_LIMIT_FAMILIES.items():
     SEMANTICS[("distribution-enclosure", "pcs", _lim)] = _measure(_label, SensorDeviceClass.CURRENT)
     SEMANTICS[("distribution-enclosure", "pcs", f"{_lim}-enablement")] = _diag(f"{_label} Enablement")
     SEMANTICS[("distribution-enclosure", "pcs", f"{_lim}-active")] = _binary(
@@ -277,3 +281,34 @@ SEMANTICS[("distribution-enclosure", "pcs", "active")] = _binary(
     "PCS Active", entity_category=EntityCategory.DIAGNOSTIC
 )
 SEMANTICS[("distribution-enclosure", "pcs", "binding-constraint")] = _diag("PCS Binding Constraint")
+
+# distribution-enclosure ``doe`` (dynamic operating envelope): forward-declared
+# by the adapter schema (not populated on today's panels); json, shown verbatim.
+SEMANTICS[("distribution-enclosure", "doe", "import-limit")] = _diag(
+    "Import DOE", icon="mdi:transmission-tower-import"
+)
+SEMANTICS[("distribution-enclosure", "doe", "export-limit")] = _diag(
+    "Export DOE", icon="mdi:transmission-tower-export"
+)
+
+# ── evse ─────────────────────────────────────────────────────────────────────
+# Published by the adapter but not instantiated on the reference panels (nobody
+# owns one), so validated against the adapter schema rather than a live fixture.
+SEMANTICS[("evse", "info", "vendor-name")] = _diag("Vendor")
+SEMANTICS[("evse", "info", "model")] = _diag("Model")
+SEMANTICS[("evse", "info", "part-number")] = _diag("Part Number")
+SEMANTICS[("evse", "info", "serial-number")] = _diag("Serial Number")
+SEMANTICS[("evse", "info", "firmware-version")] = _diag("Firmware Version")
+# lock-state (UNLOCKED/LOCKED) and status (AVAILABLE/PREPARING/CHARGING/
+# UNAVAILABLE) are read-only enums; shown verbatim so every state stays legible.
+SEMANTICS[("evse", "switch", "lock-state")] = _diag("Lock State", icon="mdi:lock")
+SEMANTICS[("evse", "status", "status")] = _diag("Status", icon="mdi:ev-station")
+SEMANTICS[("evse", "meter", "advertised-current")] = _measure("Advertised Current", SensorDeviceClass.CURRENT)
+# user-max-charge-current is settable in the adapter schema; surfaced read-only
+# until a NUMBER platform is added (Platform.NUMBER is not yet in PLATFORMS).
+SEMANTICS[("evse", "config", "user-max-charge-current")] = _diag(
+    "User Max Charge Current", device_class=SensorDeviceClass.CURRENT
+)
+SEMANTICS[("evse", "config", "max-charge-current")] = _diag(
+    "Max Charge Current", device_class=SensorDeviceClass.CURRENT
+)
