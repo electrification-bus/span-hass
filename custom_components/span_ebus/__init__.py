@@ -467,21 +467,44 @@ async def _wait_for_circuit_names(
             unreg()
 
 
+def _flatten_properties(props: dict[str, Any] | None) -> dict[str, Any]:
+    """Flatten the SDK's nested ``{node: {prop: value}}`` to ``{"node/prop": value}``.
+
+    ``DiscoveredDevice.properties`` is nested by node, but the tree snapshot and
+    the node_mappers that read ``device_data["properties"]`` for sibling-gate
+    lookups (e.g. ``"connection/feeds-device-type"``, ``"info/direction"``)
+    expect flat ``"capability/property"`` keys, matching the tree fixture JSONs.
+    Without this flattening those lookups silently miss at runtime and fall back
+    to defaults (settable gates, lug-direction resolution).
+    """
+    flat: dict[str, Any] = {}
+    for node_id, node_props in (props or {}).items():
+        if isinstance(node_props, dict):
+            for prop_id, value in node_props.items():
+                flat[f"{node_id}/{prop_id}"] = value
+        else:
+            # Defensive: an already-flat "node/prop" -> scalar entry.
+            flat[node_id] = node_props
+    return flat
+
+
 def _controller_devices_to_snapshot(
     devices: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     """Adapt the live Controller.devices dict to the snapshot shape the walker expects.
 
-    ``DiscoveredDevice`` carries the same fields the fixture snapshots do —
-    description, properties, parent_id, children_ids, is_root, root_id —
-    just as attributes rather than dict keys. Materialise a dict-of-dicts so
-    ``entities_from_tree`` doesn't need to know the runtime type.
+    ``DiscoveredDevice`` carries the same fields the fixture snapshots do
+    (description, properties, parent_id, children_ids, is_root, root_id) just as
+    attributes rather than dict keys. Materialise a dict-of-dicts so
+    ``entities_from_tree`` doesn't need to know the runtime type. Properties are
+    flattened from the SDK's nested ``{node: {prop: value}}`` to the flat
+    ``{"node/prop": value}`` shape the mappers and fixtures use.
     """
     out: dict[str, dict[str, Any]] = {}
     for device_id, dev in devices.items():
         out[device_id] = {
             "description": dev.description or {},
-            "properties": dict(dev.properties or {}),
+            "properties": _flatten_properties(dev.properties),
             "parent_id": getattr(dev, "parent_id", None),
             "children_ids": list(getattr(dev, "children_ids", []) or []),
             "is_root": getattr(dev, "is_root", device_id == device_id),

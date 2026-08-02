@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from custom_components.span_ebus import _resolve_upstream_panel
+from custom_components.span_ebus import (
+    _controller_devices_to_snapshot,
+    _resolve_upstream_panel,
+)
 
 
 def _mock_panel(serial: str, fed_by_id: str | None, fed_by_type: str | None) -> MagicMock:
@@ -18,6 +21,34 @@ def _mock_panel(serial: str, fed_by_id: str | None, fed_by_type: str | None) -> 
     }
     panel.get_property_value = lambda *args, **kwargs: expected.get(args)
     return panel
+
+
+def test_controller_devices_to_snapshot_flattens_nested_properties() -> None:
+    """Flatten nested ``DiscoveredDevice.properties`` to ``"capability/property"`` keys.
+
+    The SDK exposes properties nested by node; the snapshot the mappers consume
+    must flatten them so the sibling-gate lookups (e.g.
+    ``"connection/feeds-device-type"``) resolve at runtime instead of silently
+    falling back to defaults.
+    """
+    dev = MagicMock()
+    dev.description = {"type": "energy.ebus.device.circuit", "nodes": {}}
+    dev.properties = {
+        "switch": {"relay": "CLOSED", "relay-controllable": True},
+        "info": {"direction": "UPSTREAM"},
+    }
+    dev.parent_id = "root"
+    dev.children_ids = []
+    dev.is_root = False
+    dev.root_id = "root"
+
+    snap = _controller_devices_to_snapshot({"dev1": dev})
+
+    assert snap["dev1"]["properties"] == {
+        "switch/relay": "CLOSED",
+        "switch/relay-controllable": True,
+        "info/direction": "UPSTREAM",
+    }
 
 
 def test_resolve_upstream_panel_returns_serial_for_distribution_enclosure() -> None:
