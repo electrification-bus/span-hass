@@ -15,7 +15,7 @@ per-leg currents + power + energy).
 
 ``tests/test_semantics_coverage.py`` keeps this table honest against the
 adapter's own generated schema (``GET /api/v2/homie/schema``, vendored as
-``tests/fixtures/adapter-homie-schema.json``): every device class / capability /
+``custom_components/span_ebus/adapter_schema.json``): every device class / capability /
 property the ebus-panel-adapter can publish must be mapped here, so a renamed or
 added property surfaces as a loud test failure rather than a silently dropped
 entity. The adapter schema, not the upstream spec (aspirational) nor only the

@@ -26,9 +26,9 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+from pathlib import Path
 import subprocess
 import sys
-from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VENDOR_DIR = REPO_ROOT / "custom_components" / "span_ebus" / "spec"

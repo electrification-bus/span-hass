@@ -1,6 +1,6 @@
 # Vendored eBus specification catalogs
 
-These JSON files are vendored (copied) from the public [`electrification-bus/specification`](https://github.com/electrification-bus/specification) repository. They are the machine-readable capability and device catalogs that define the eBus data model this integration maps to Home Assistant entities.
+These JSON files are vendored (copied) from the public [`electrification-bus/specification`](https://github.com/electrification-bus/specification) repository. They are the machine-readable capability and device catalogs for the eBus standard the SPAN adapter tracks. The integration models the adapter's *own* generated schema (`../adapter_schema.json`); these catalogs are the upstream standard and the conformance reference.
 
 ## Why vendored
 
@@ -18,7 +18,7 @@ The exact source commit is recorded in `.ebus-spec.json` at the repository root 
 
 ## How the integration uses these
 
-Entity **structure** (which properties exist, their datatype/unit/format/settable) is read at runtime from each device's live Homie `$description`, which is the source of truth for what a given panel actually emits. These vendored catalogs are the **semantics and coverage anchor**: the mapper's declarative capability-to-Home-Assistant table is validated in CI to cover every property the vendored catalogs define, and any live-wire property missing from that table is flagged.
+Entity **structure** (which properties exist, their datatype/unit/format/settable) is read at runtime from each device's live Homie `$description`, the source of truth for what a given panel actually emits. The **coverage oracle** is not these files but the adapter's own generated schema, vendored at `../adapter_schema.json` (`GET /api/v2/homie/schema`): it enumerates everything the ebus-panel-adapter can publish, and the mapper's declarative table is validated in CI to cover all of it. These spec catalogs are the **upstream standard the adapter tracks** and a **conformance reference**: where the adapter schema and a catalog both define a property, CI checks they agree on datatype/unit (allowing the adapter's expected refinements, e.g. a free `string` narrowed to an `enum`). See `tests/test_semantics_coverage.py`.
 
 ## Updating (re-vendoring)
 

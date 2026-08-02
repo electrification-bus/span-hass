@@ -1,4 +1,13 @@
 {
+  "_provenance": {
+    "source": "GET /api/v2/homie/schema",
+    "captured_from_panel": "lc1",
+    "captured_date": "2026-08-02",
+    "firmware_version": "dcj/260720/2244",
+    "intended_span_release": "r202633",
+    "release_status": "pre-release: firmware dcj/260720/2244 is the dev build intended to ship as SPAN r202633, which has not been released yet. span-hass models this pre-release schema now; re-capture and re-verify after the r202633 release (expected identical, with no other repo changes needed).",
+    "note": "Adapter-generated schema = the source-of-truth span-hass models: every device class / capability / property the SPAN ebus-panel-adapter can publish. Refresh with scripts/sync_adapter_schema.py."
+  },
   "firmwareVersion": "dcj/260720/2244",
   "homieDomain": "ebus",
   "homieVersion": 5,

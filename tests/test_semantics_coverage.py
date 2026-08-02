@@ -1,22 +1,22 @@
-"""Coverage + provenance checks for the description-driven mapper.
+"""Coverage, conformance, and provenance checks for the description-driven mapper.
 
-The coverage ORACLE is the adapter's own generated schema
-(``GET /api/v2/homie/schema``), vendored as
-``tests/fixtures/adapter-homie-schema.json``. It enumerates every device class /
-capability / property the SPAN ebus-panel-adapter can publish, including ones
-not instantiated on the reference panels (EVSE, or the forward-declared ``doe``
-capability). Tracking the adapter schema is the adapter-first guarantee: it is
-neither the upstream spec (aspirational: device profiles list capabilities the
-adapter does not publish) nor only the live wire (which shows only the devices a
-given panel happens to have). When the adapter adds or renames a property,
-``SEMANTICS`` must gain an entry or ``test_adapter_schema_is_fully_mapped`` fails.
+This repo carries two vendored models and uses both:
 
-Refresh the vendored schema from a panel with:
-    curl http://<panel-host>/api/v2/homie/schema > tests/fixtures/adapter-homie-schema.json
-(unauthenticated; returns type definitions only, no device values or serials.)
+* ``custom_components/span_ebus/adapter_schema.json`` (``GET /api/v2/homie/schema``)
+  is the source-of-truth span-hass MODELS: every device class / capability /
+  property the SPAN ebus-panel-adapter can publish, including ones the reference
+  panels lack (EVSE) and forward-declared capabilities (``doe``). ``SEMANTICS``
+  must cover all of it (``test_adapter_schema_is_fully_mapped``).
 
-Provenance is also checked: the pinned versions in ``.ebus-spec.json`` must match
-the vendored spec catalogs under ``spec/``, so a botched re-vendor is caught here.
+* ``custom_components/span_ebus/spec/*.json`` (the public eBus specification) is
+  the STANDARD the adapter tracks. Where the adapter schema and a spec catalog
+  both define a property, they must agree on datatype/unit
+  (``test_adapter_schema_conforms_to_spec``), except for the adapter's expected
+  refinements (a free ``string`` narrowed to an ``enum``; the spec's abstract
+  ``energy`` unit token concretized to ``kWh``/``Wh``). An unexpected divergence
+  is a signal: the adapter moved, or the pinned spec version is stale.
+
+Provenance: ``.ebus-spec.json`` versions must match the vendored spec catalogs.
 """
 
 from __future__ import annotations
@@ -27,24 +27,51 @@ from pathlib import Path
 from custom_components.span_ebus.semantics import SEMANTICS
 
 REPO = Path(__file__).parent.parent
-SPEC = REPO / "custom_components" / "span_ebus" / "spec"
+COMPONENT = REPO / "custom_components" / "span_ebus"
+SPEC = COMPONENT / "spec"
+ADAPTER_SCHEMA = COMPONENT / "adapter_schema.json"
 FIXTURES = REPO / "tests" / "fixtures"
 LOCKFILE = REPO / ".ebus-spec.json"
 
 
+def _device_classes() -> dict:
+    return json.loads(ADAPTER_SCHEMA.read_text())["deviceClasses"]
+
+
 def _schema_properties() -> set[tuple[str, str, str]]:
     """Every (device_class, capability, property) the adapter schema declares."""
-    schema = json.loads((FIXTURES / "adapter-homie-schema.json").read_text())
     return {
         (device_class, capability, prop)
-        for device_class, caps in schema["deviceClasses"].items()
+        for device_class, caps in _device_classes().items()
         for capability, props in caps.items()
         for prop in props
     }
 
 
+def _spec_catalog(capability: str) -> dict | None:
+    """Return {property: decl} for a vendored spec capability catalog (patterns expanded)."""
+    path = SPEC / "capabilities" / f"{capability}.json"
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text())
+    props = dict(data.get("properties") or {})
+    for pattern_name, pattern in (data.get("property_patterns") or {}).items():
+        base = pattern_name.split("{")[0]
+        for token in pattern.get("expand", []):
+            props[f"{base}{token}"] = pattern
+    return props
+
+
+def _divergence_allowed(kind: str, adapter_val: str, spec_val: str) -> bool:
+    """Return True for expected adapter refinements of the spec (track-adapter-first)."""
+    if kind == "datatype" and spec_val == "string" and adapter_val == "enum":
+        return True  # adapter constrains a free string to an enum (e.g. info/model)
+    if kind == "unit" and spec_val == "energy":
+        return True  # spec's abstract "energy" token -> the adapter's concrete unit (kWh/Wh)
+    return False
+
+
 def _fixture_wire_properties(name: str) -> set[tuple[str, str, str]]:
-    """Every (device_class, capability, property) a tree fixture declares."""
     devices = json.loads((FIXTURES / "tree" / name).read_text())["devices"]
     seen: set[tuple[str, str, str]] = set()
     for dev in devices.values():
@@ -69,12 +96,32 @@ def test_adapter_schema_is_fully_mapped() -> None:
     assert unmapped == [], f"adapter-schema properties with no SEMANTICS entry: {unmapped}"
 
 
-def test_live_fixture_is_a_subset_of_the_adapter_schema() -> None:
-    """The captured panel fixture only carries properties the schema declares.
+def test_adapter_schema_conforms_to_spec() -> None:
+    """Where the adapter schema and a spec catalog both define a property, they agree.
 
-    Catches a stale fixture (or a schema that has moved on) before it can mask a
-    coverage gap.
+    Adapter-only properties are SPAN extensions and allowed; known refinements
+    (string->enum, abstract ``energy`` unit -> concrete) are allowed. Anything else
+    is an unexpected divergence worth surfacing.
     """
+    divergences: list[str] = []
+    for device_class, caps in _device_classes().items():
+        for capability, props in caps.items():
+            spec = _spec_catalog(capability)
+            if spec is None:
+                continue
+            for prop, adapter_decl in props.items():
+                spec_decl = spec.get(prop)
+                if spec_decl is None:
+                    continue  # SPAN extension beyond the spec
+                for field in ("datatype", "unit"):
+                    a, s = adapter_decl.get(field), spec_decl.get(field)
+                    if a and s and a != s and not _divergence_allowed(field, a, s):
+                        divergences.append(f"{device_class}/{capability}/{prop}: {field} adapter={a} spec={s}")
+    assert divergences == [], "unexpected adapter<->spec divergences: " + "; ".join(divergences)
+
+
+def test_live_fixture_is_a_subset_of_the_adapter_schema() -> None:
+    """The captured panel fixture only carries properties the schema declares."""
     schema = _schema_properties()
     stray = sorted(k for k in _fixture_wire_properties("nt-2143-c1akc.json") if k not in schema)
     assert stray == [], f"fixture properties absent from the adapter schema: {stray}"
