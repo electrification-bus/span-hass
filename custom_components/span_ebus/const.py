@@ -53,8 +53,9 @@ DEVICE_TYPE_PV = "pv"
 DEVICE_TYPE_EVSE = "evse"
 DEVICE_TYPE_CIRCUIT = "circuit"
 
-# Capabilities (Homie node-ids within a device — used as dispatch keys against
-# the (device-class, capability) → mapper table in node_mappers_tree.py).
+# Capabilities (Homie node-ids within a device). Short capability names form
+# part of the (device-class, capability, property) keys in the SEMANTICS table
+# in semantics.py.
 CAPABILITY_INFO = "info"
 CAPABILITY_DOOR = "door"
 CAPABILITY_METER = "meter"
@@ -66,6 +67,4 @@ CAPABILITY_SHED = "shed"
 CAPABILITY_SOC = "soc"
 CAPABILITY_GRID = "grid"
 CAPABILITY_SWITCH = "switch"
-CAPABILITY_PRIORITY = "priority"
-CAPABILITY_CONFIG = "config"
 CAPABILITY_CONNECTION = "connection"

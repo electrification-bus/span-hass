@@ -16,8 +16,8 @@ from .const import (
 )
 
 # Human-readable model labels per short device-class name (the trailing
-# segment of the Homie device type URI; same constants used as dispatch keys
-# in node_mappers.CAPABILITY_MAPPERS).
+# segment of the Homie device type URI; the same short names used in the
+# SEMANTICS keys in semantics.py).
 DEVICE_TYPE_LABELS = {
     DEVICE_TYPE_DISTRIBUTION_ENCLOSURE: "SPAN Panel",
     DEVICE_TYPE_LUGS: "Lugs",
