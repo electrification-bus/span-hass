@@ -97,10 +97,10 @@ def test_build_mqtt_cfg_falls_back_to_broker_host_without_discovered_ip() -> Non
 
 
 def test_resolve_upstream_panel_returns_serial_for_distribution_enclosure() -> None:
-    """G3P-24911 cascade case: this panel's upstream is another panel.
+    """Cascade case: this panel's upstream is another panel.
 
-    Matches the example from SPAN-c7h: panel lc2 sees lc1 (a
-    distribution-enclosure) as its upstream and should link via_device → lc1.
+    Panel lc2 sees lc1 (a distribution-enclosure) as its upstream and should
+    link via_device → lc1.
     """
     panel = _mock_panel(
         serial="nt-2204-lc2",
@@ -129,8 +129,8 @@ def test_resolve_upstream_panel_returns_none_for_bess() -> None:
 def test_resolve_upstream_panel_returns_none_for_utility_feed() -> None:
     """No upstream pointer published = utility feed.
 
-    Single-panel install with grid feed, or a panel whose firmware predates
-    G3P-24911 and doesn't publish the triplet at all.
+    Single-panel install with grid feed, or a panel whose firmware predates the
+    cascade-topology feature and doesn't publish the triplet at all.
     """
     panel = _mock_panel(
         serial="nt-2143-c1akc", fed_by_id=None, fed_by_type=None

@@ -44,7 +44,7 @@ EBUS_HOMIE_DOMAIN = "ebus"
 # Homie device-type URI prefix; trailing segment is the short device-class name.
 HOMIE_DEVICE_TYPE_PREFIX = "energy.ebus.device."
 
-# Device classes (G3P-23496 tree data model — short names extracted from the URI).
+# Device classes (tree data model — short names extracted from the URI).
 DEVICE_TYPE_DISTRIBUTION_ENCLOSURE = "distribution-enclosure"
 DEVICE_TYPE_LUGS = "lugs"
 DEVICE_TYPE_BESS = "bess"

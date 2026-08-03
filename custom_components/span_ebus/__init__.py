@@ -578,8 +578,8 @@ def _stamp_device_presentation(
 def _resolve_upstream_panel(panel: Any) -> str | None:
     """Read the publisher's upstream-topology pointer for this panel.
 
-    G3P-24911 publishes the cascade topology via the lugs-up ``connection``
-    capability: ``fed-by-device-id`` carries the serial of whatever feeds this
+    The panel firmware publishes the cascade topology via the lugs-up
+    ``connection`` capability: ``fed-by-device-id`` carries the serial of whatever feeds this
     panel, and ``fed-by-device-type`` distinguishes a sister panel
     (``energy.ebus.device.distribution-enclosure`` — a downstream panel in a
     cascade) from a BESS feeding from above (``energy.ebus.device.bess``) or

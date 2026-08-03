@@ -20,7 +20,7 @@ from custom_components.span_ebus.const import (
 
 MOCK_SERIAL = "nt-0000-abc12"
 MOCK_HOST = "192.168.1.100"
-MOCK_FIRMWARE = "spanos2/r202627/01"
+MOCK_FIRMWARE = "spanos2/r202633/01"
 MOCK_ACCESS_TOKEN = "test-access-token"
 MOCK_BROKER_USERNAME = MOCK_SERIAL
 MOCK_BROKER_PASSWORD = "test-broker-password"
