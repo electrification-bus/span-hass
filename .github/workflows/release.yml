@@ -1,0 +1,84 @@
+name: Release
+
+# Publish a GitHub Release when a version tag is pushed. The notes come from the
+# matching CHANGELOG section, so cutting a release is a single manual step:
+#
+#   git tag v0.3.1 && git push origin v0.3.1
+#
+# Guards (each fails the run rather than publish a wrong release):
+#   - the tag (vX.Y.Z) must equal custom_components/span_ebus/manifest.json version
+#   - CHANGELOG.md must contain a "## [X.Y.Z]" section
+#   - that section's date must be today (UTC), i.e. the actual release date
+#
+# Recovery when a guard fails: fix the file on main, then move the tag:
+#   git tag -f vX.Y.Z && git push -f origin vX.Y.Z
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish GitHub Release from CHANGELOG
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive version from tag
+        id: v
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Tag must match manifest.json version
+        run: |
+          MANIFEST_VER=$(python3 -c "import json; print(json.load(open('custom_components/span_ebus/manifest.json'))['version'])")
+          if [ "$MANIFEST_VER" != "${{ steps.v.outputs.ver }}" ]; then
+            echo "::error::tag ${{ steps.v.outputs.tag }} != manifest.json version ($MANIFEST_VER). Bump the manifest or move the tag."
+            exit 1
+          fi
+
+      - name: Extract CHANGELOG notes and verify the release date
+        run: |
+          set -euo pipefail
+          VER="${{ steps.v.outputs.ver }}"
+          VER_ESC="${VER//./\\.}"
+          START=$(grep -nE "^## \[${VER_ESC}\]" CHANGELOG.md | head -1 | cut -d: -f1 || true)
+          if [ -z "${START:-}" ]; then
+            echo "::error::No CHANGELOG section '## [$VER]' found."
+            exit 1
+          fi
+          CL_DATE=$(sed -n "${START}p" CHANGELOG.md | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1 || true)
+          TODAY=$(date -u +%F)
+          if [ "${CL_DATE:-}" != "$TODAY" ]; then
+            echo "::error::CHANGELOG date for [$VER] is '${CL_DATE:-none}', expected today (UTC) '$TODAY'. Fix the date on main and move the tag."
+            exit 1
+          fi
+          # Body = lines between this heading and the next "## [" heading.
+          REL=$(tail -n +$((START + 1)) CHANGELOG.md | grep -nE '^## \[' | head -1 | cut -d: -f1 || true)
+          if [ -n "${REL:-}" ]; then
+            END=$((START + REL - 1))
+            sed -n "$((START + 1)),$((END - 1))p" CHANGELOG.md > NOTES.md
+          else
+            sed -n "$((START + 1)),\$p" CHANGELOG.md > NOTES.md
+          fi
+          # Trim leading and trailing blank lines.
+          sed -i '/./,$!d' NOTES.md
+          awk 'NF{last=NR} {line[NR]=$0} END{for (i = 1; i <= last; i++) print line[i]}' NOTES.md > NOTES.trim
+          mv NOTES.trim NOTES.md
+          echo "----- release notes for $VER -----"
+          cat NOTES.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.v.outputs.tag }}" \
+            --title "${{ steps.v.outputs.tag }}" \
+            --notes-file NOTES.md \
+            --verify-tag
