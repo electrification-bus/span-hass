@@ -359,6 +359,17 @@ poetry run ruff check custom_components/span_ebus/
 
 See [CHANGELOG.md](CHANGELOG.md). The integration is in early alpha — entity unique-IDs and the config-flow shape are intended to be stable, but expect entity additions and refinements as more SPAN deployments come online.
 
+### Cutting a release (maintainers)
+
+Releases are **tag-triggered**. HACS serves the newest GitHub Release, so the tag is what actually ships. To publish version `X.Y.Z`:
+
+1. Bump `version` in `custom_components/span_ebus/manifest.json`.
+2. Add a `## [X.Y.Z]` section to `CHANGELOG.md`, dated today (UTC).
+3. Merge to `main`. The `version-consistency` CI check enforces that the manifest version equals the newest CHANGELOG heading, so a forgotten bump fails the PR.
+4. `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+The [`Release`](.github/workflows/release.yml) workflow then publishes the GitHub Release with notes taken from that CHANGELOG section. It refuses to publish unless the tag, the manifest version, and the CHANGELOG date (which must be today, UTC) all agree; if a guard fails, fix the file on `main` and move the tag (`git tag -f vX.Y.Z && git push -f origin vX.Y.Z`).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to file Discussions, Issues, and pull requests. Changes to MQTT transport, Homie discovery, or device-tree semantics belong in [`ebus-sdk`](https://github.com/electrification-bus/python-sdk) rather than here — this repo is the Home Assistant adapter layer on top. Normative behavior tracks the [Electrification Bus specification](https://github.com/electrification-bus/specification).
