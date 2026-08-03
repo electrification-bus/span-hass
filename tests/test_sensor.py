@@ -59,7 +59,7 @@ def test_non_pv_der_circuit_power_is_negated() -> None:
 
 
 def test_pv_feed_circuit_power_is_not_negated() -> None:
-    """A PV-feed circuit reports positive generation already (SPAN-s48).
+    """A PV-feed circuit reports positive generation already.
 
     The sensor must read the live feeds-device-type and suppress the flip, so
     the published power agrees in sign with the positive imported-energy counter

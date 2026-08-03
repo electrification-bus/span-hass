@@ -9,7 +9,7 @@ package-mode = false
 [tool.poetry.dependencies]
 python = ">=3.14.2,<3.15"
 homeassistant = "2026.2.2"
-ebus-sdk = "^0.3.1"
+ebus-sdk = ">=0.17.0,<1.0"
 
 [tool.poetry.group.dev.dependencies]
 homeassistant-stubs = "2026.2.2"
@@ -107,6 +107,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "test_*.py" = ["T201", "D103", "D100", "E402", "TID252"]
 "tests/**/*.py" = ["T201", "D103", "D100", "E402", "TID252"]
+# Dev CLI tooling: prints are the interface; not every helper needs a docstring.
+"scripts/**/*.py" = ["T201", "D103", "SIM105"]
 
 [tool.ruff.lint.flake8-pytest-style]
 fixture-parentheses = false

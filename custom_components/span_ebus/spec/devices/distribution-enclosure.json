@@ -1,0 +1,140 @@
+{
+  "$schema": "https://ebus.energy/schemas/device-profile.json",
+  "schema_version": "property-schema-v1",
+  "kind": "device-profile",
+  "device": "energy.ebus.device.distribution-enclosure",
+  "version": "0.12",
+  "status": "DRAFT",
+  "date": "2026-07-30",
+  "device_types": {
+    "energy.ebus.device.circuit": {
+      "role": "child",
+      "capabilities": {}
+    },
+    "energy.ebus.device.distribution-enclosure": {
+      "role": "parent",
+      "capabilities": {
+        "breaker": {
+          "catalog": "energy.ebus.capability.breaker",
+          "catalog_version": "0.1"
+        },
+        "doe": {
+          "catalog": "energy.ebus.capability.doe",
+          "catalog_version": "0.1"
+        },
+        "door": {
+          "catalog": "energy.ebus.capability.door",
+          "catalog_version": "0.1"
+        },
+        "grid-event": {
+          "catalog": "energy.ebus.capability.grid-event",
+          "catalog_version": "0.1"
+        },
+        "info": {
+          "catalog": "energy.ebus.capability.info",
+          "catalog_version": "0.2"
+        },
+        "meter": {
+          "catalog": "energy.ebus.capability.meter",
+          "catalog_version": "0.2"
+        },
+        "pcs": {
+          "catalog": "energy.ebus.capability.pcs",
+          "catalog_version": "0.3"
+        },
+        "power-flows": {
+          "catalog": "energy.ebus.capability.power-flows",
+          "catalog_version": "0.1"
+        },
+        "price": {
+          "catalog": "energy.ebus.capability.price",
+          "catalog_version": "0.1"
+        },
+        "shed": {
+          "catalog": "energy.ebus.capability.shed",
+          "catalog_version": "0.2"
+        },
+        "shed-forecast": {
+          "catalog": "energy.ebus.capability.shed-forecast",
+          "catalog_version": "0.1"
+        },
+        "status": {
+          "catalog": "energy.ebus.capability.status",
+          "catalog_version": "0.1"
+        },
+        "voltage-response": {
+          "catalog": "energy.ebus.capability.voltage-response",
+          "catalog_version": "0.1"
+        }
+      }
+    },
+    "energy.ebus.device.evse": {
+      "role": "child",
+      "capabilities": {
+        "charge-limit": {
+          "catalog": "energy.ebus.capability.charge-limit",
+          "catalog_version": "0.1"
+        },
+        "info": {
+          "catalog": "energy.ebus.capability.info",
+          "catalog_version": "0.2"
+        },
+        "meter": {
+          "catalog": "energy.ebus.capability.meter",
+          "catalog_version": "0.2"
+        },
+        "status": {
+          "catalog": "energy.ebus.capability.status",
+          "catalog_version": "0.1"
+        },
+        "switch": {
+          "catalog": "energy.ebus.capability.switch",
+          "catalog_version": "0.1"
+        }
+      }
+    },
+    "energy.ebus.device.lugs": {
+      "role": "child",
+      "capabilities": {
+        "connection": {
+          "catalog": "energy.ebus.capability.connection",
+          "catalog_version": "0.1"
+        },
+        "info": {
+          "catalog": "energy.ebus.capability.info",
+          "catalog_version": "0.2"
+        },
+        "meter": {
+          "catalog": "energy.ebus.capability.meter",
+          "catalog_version": "0.2"
+        }
+      }
+    },
+    "energy.ebus.device.mid": {
+      "role": "child",
+      "capabilities": {
+        "grid": {
+          "catalog": "energy.ebus.capability.grid",
+          "catalog_version": "0.1"
+        },
+        "info": {
+          "catalog": "energy.ebus.capability.info",
+          "catalog_version": "0.2"
+        }
+      }
+    },
+    "energy.ebus.device.pv": {
+      "role": "child",
+      "capabilities": {
+        "info": {
+          "catalog": "energy.ebus.capability.info",
+          "catalog_version": "0.2"
+        },
+        "meter": {
+          "catalog": "energy.ebus.capability.meter",
+          "catalog_version": "0.2"
+        }
+      }
+    }
+  }
+}

@@ -24,3 +24,25 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+
+  spec-drift:
+    name: Spec drift (pinned catalogs vs upstream)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: electrification-bus/specification
+          ref: main
+          path: _spec
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # Fails (exit 1) when .ebus-spec.json is BEHIND the current upstream spec:
+      # the signal to re-vendor the catalogs (scripts/sync_spec.py). The daily
+      # cron catches upstream version bumps even with no local commits.
+      - name: Report drift of .ebus-spec.json against current spec
+        run: |
+          python3 _spec/tools/drift-report.py \
+            --manifest _spec/spec-manifest.json \
+            "${GITHUB_WORKSPACE}/.ebus-spec.json"

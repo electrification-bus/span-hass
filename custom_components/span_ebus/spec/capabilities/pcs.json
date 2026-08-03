@@ -1,0 +1,111 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.pcs",
+  "version": "0.3",
+  "status": "DRAFT",
+  "date": "2026-07-14",
+  "properties": {
+    "enabled": {
+      "datatype": "boolean",
+      "req": "SHOULD",
+      "description": "Is the PCS enabled on this enclosure?"
+    },
+    "active": {
+      "datatype": "boolean",
+      "req": "SHOULD",
+      "description": "Is the PCS actively limiting import right now?"
+    },
+    "import-limit": {
+      "datatype": "float",
+      "unit": "A",
+      "req": "SHOULD",
+      "description": "The **effective** enforced import limit: the `min()` across all active constraints reconciled to amps (the amps-native limits below, plus the reconciled `doe` and `voltage-response`)."
+    },
+    "binding-constraint": {
+      "datatype": "enum",
+      "format": "FSR,DOE,VOLTAGE,OFF_GRID,REQUESTED,OPERATOR,NONE,UNKNOWN",
+      "req": "SHOULD",
+      "description": "Which constraint class currently sets `import-limit`: `FSR`, `DOE`, `VOLTAGE`, `OFF_GRID`, `REQUESTED`, `OPERATOR`, `NONE`, `UNKNOWN`. The provenance of the enforced limit; publishers MAY extend via `$format` (see the note on vendor-specific sources below)."
+    },
+    "feed-import-limit": {
+      "datatype": "float",
+      "unit": "A",
+      "req": "SHOULD",
+      "description": "The **FSR**: commissioned firm feed / service capacity (premises-equipment protection), set at install. The always-on floor. May be less than the main-breaker rating when the upstream feed conductor is smaller (e.g. a 200 A panel on a 100 A service feed publishes `feed-import-limit = 100`)."
+    },
+    "feed-import-limit-enablement": {
+      "datatype": "enum",
+      "format": "UNSPECIFIED,UNCONFIGURED,DISABLED,ENABLED",
+      "req": "SHOULD",
+      "description": "`UNSPECIFIED`, `UNCONFIGURED`, `DISABLED`, `ENABLED`."
+    },
+    "feed-import-limit-active": {
+      "datatype": "boolean",
+      "req": "SHOULD",
+      "description": "Is this constraint currently enforcing (enabled **and** its activation conditions met)? Distinct from `binding-constraint`: several constraints may be active at once, but only the most restrictive is binding."
+    },
+    "off-grid-import-limit": {
+      "datatype": "float",
+      "unit": "A",
+      "req": "MAY",
+      "description": "Import cap when islanded (from BESS / DER)."
+    },
+    "off-grid-import-limit-enablement": {
+      "datatype": "enum",
+      "format": "UNSPECIFIED,UNCONFIGURED,DISABLED,ENABLED",
+      "req": "MAY",
+      "description": "Same domain."
+    },
+    "off-grid-import-limit-active": {
+      "datatype": "boolean",
+      "req": "MAY",
+      "description": "Typically active only while islanded. See `feed-import-limit-active`."
+    },
+    "requested-import-limit": {
+      "datatype": "float",
+      "unit": "A",
+      "req": "MAY",
+      "description": "A **voluntary**, self-imposed temporary limit requested by the homeowner or installer (e.g. via a mobile app). Self-revocable. Distinct from an externally imposed operator cap (`operator-import-limit`) and from the utility grid envelope (`doe`)."
+    },
+    "requested-import-limit-enablement": {
+      "datatype": "enum",
+      "format": "UNSPECIFIED,UNCONFIGURED,DISABLED,ENABLED",
+      "req": "MAY",
+      "description": "Same domain."
+    },
+    "requested-import-limit-active": {
+      "datatype": "boolean",
+      "req": "MAY",
+      "description": "See `feed-import-limit-active`."
+    },
+    "operator-import-limit": {
+      "datatype": "float",
+      "unit": "A",
+      "req": "MAY",
+      "description": "An **externally imposed** cap set by a fleet / aggregator operator over a management API (a DER aggregator, VPP, or utility program acting through the vendor's fleet REST interface). Persists until the operator changes or clears it. Distinct from `requested-import-limit` (self-imposed) and from `doe` (the standardized IEEE 2030.5 / CSIP watts envelope): `operator-import-limit` is a vendor-API amps cap, not a CSIP DOE."
+    },
+    "operator-import-limit-enablement": {
+      "datatype": "enum",
+      "format": "UNSPECIFIED,UNCONFIGURED,DISABLED,ENABLED",
+      "req": "MAY",
+      "description": "Same domain."
+    },
+    "operator-import-limit-active": {
+      "datatype": "boolean",
+      "req": "MAY",
+      "description": "See `feed-import-limit-active`."
+    },
+    "managed": {
+      "datatype": "boolean",
+      "req": "MAY",
+      "description": "Is this circuit managed by the host's PCS?"
+    },
+    "priority": {
+      "datatype": "integer",
+      "req": "MAY",
+      "description": "PCS priority ranking, consulted when an active import limit is binding (which circuits shed first)."
+    }
+  }
+}

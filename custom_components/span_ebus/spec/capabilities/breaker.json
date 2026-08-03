@@ -1,0 +1,52 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.breaker",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "rating": {
+      "datatype": "integer",
+      "unit": "A",
+      "req": "SHOULD",
+      "description": "Continuous current rating."
+    },
+    "poles": {
+      "datatype": "integer",
+      "req": "MAY",
+      "description": "Number of poles (1-4). A US split-phase 240 V breaker is `2`."
+    },
+    "interrupting-rating": {
+      "datatype": "integer",
+      "unit": "kA",
+      "req": "MAY",
+      "description": "Interrupting capacity (kAIC), e.g. `10`, `65`, `100`."
+    },
+    "protection-functions": {
+      "datatype": "enum",
+      "format": "OVERCURRENT,SHORT_CIRCUIT,GROUND_FAULT,ARC_FAULT",
+      "req": "MAY",
+      "description": "Multi-valued set of the protections this breaker provides: `OVERCURRENT`, `SHORT_CIRCUIT`, `GROUND_FAULT` (GFCI), `ARC_FAULT` (AFCI)."
+    },
+    "trip-curve": {
+      "datatype": "enum",
+      "format": "B,C,D,K",
+      "req": "MAY",
+      "description": "Instantaneous trip curve: `B`, `C`, `D`, `K`, …"
+    },
+    "trip-state": {
+      "datatype": "enum",
+      "format": "OK,TRIPPED,STUCK,UNKNOWN,CLOSED",
+      "req": "SHOULD",
+      "description": "`OK`, `TRIPPED`, `STUCK`, `UNKNOWN`. A tripped breaker carries no current even if a co-located `switch/relay` reads `CLOSED`, so `trip-state` is not a relay state."
+    },
+    "trip-cause": {
+      "datatype": "enum",
+      "format": "OVERCURRENT,SHORT_CIRCUIT,GROUND_FAULT,ARC_FAULT,OVERVOLTAGE,UNKNOWN",
+      "req": "MAY",
+      "description": "Cause of the most recent trip: `OVERCURRENT`, `SHORT_CIRCUIT`, `GROUND_FAULT`, `ARC_FAULT`, `OVERVOLTAGE`, `UNKNOWN`."
+    }
+  }
+}

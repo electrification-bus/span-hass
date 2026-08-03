@@ -1,0 +1,29 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.switch",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-05",
+  "properties": {
+    "relay": {
+      "datatype": "enum",
+      "format": "OPEN,CLOSED,UNKNOWN",
+      "settable": true,
+      "req": "MUST",
+      "description": "Relay state: `OPEN`, `CLOSED`, `UNKNOWN`. Settable when `relay-controllable = true`."
+    },
+    "relay-controllable": {
+      "datatype": "boolean",
+      "req": "SHOULD",
+      "description": "True = the relay can be opened and closed by command or automatic shed. False = locked (for example a circuit commissioned as permanently on)."
+    },
+    "relay-requester": {
+      "datatype": "enum",
+      "format": "USER,LOAD_SHED,PCS,CONFIGURATION,FAULT,NONE,UNKNOWN",
+      "req": "SHOULD",
+      "description": "Source attribution for the last relay change: `USER`, `LOAD_SHED`, `PCS`, `CONFIGURATION`, `FAULT`, `NONE`, `UNKNOWN`. Publishers MAY extend via `$format`."
+    }
+  }
+}

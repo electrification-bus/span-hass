@@ -1,0 +1,45 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.demand",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "integration-window": {
+      "datatype": "integer",
+      "unit": "s",
+      "req": "MAY",
+      "description": "Demand integration interval length. Common values: `900` (15 min), `1800` (30 min), `3600` (1 hour)."
+    },
+    "current-interval-demand": {
+      "datatype": "float",
+      "unit": "W",
+      "req": "MAY",
+      "description": "Running average over the currently-open interval; resets at each interval boundary."
+    },
+    "previous-interval-demand": {
+      "datatype": "float",
+      "unit": "W",
+      "req": "MAY",
+      "description": "Closed value of the most-recently-completed interval."
+    },
+    "peak-demand-this-period": {
+      "datatype": "float",
+      "unit": "W",
+      "req": "MAY",
+      "description": "Highest `previous-interval-demand` observed since the most recent peak reset."
+    },
+    "peak-demand-time": {
+      "datatype": "datetime",
+      "req": "MAY",
+      "description": "Timestamp (ISO-8601 UTC) of the interval that produced `peak-demand-this-period`."
+    },
+    "peak-demand-reset-time": {
+      "datatype": "datetime",
+      "req": "MAY",
+      "description": "When `peak-demand-this-period` was last reset (typically the start of the current billing period). ISO-8601 UTC."
+    }
+  }
+}

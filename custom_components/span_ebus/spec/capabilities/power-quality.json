@@ -1,0 +1,52 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.power-quality",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "voltage-unbalance": {
+      "datatype": "float",
+      "unit": "%",
+      "req": "MAY",
+      "description": "Voltage unbalance across phases (typically the NEMA definition: max deviation from the average, divided by the average)."
+    }
+  },
+  "property_patterns": {
+    "thd-voltage-{a,b,c}": {
+      "datatype": "float",
+      "unit": "%",
+      "req": "MAY",
+      "description": "Total Harmonic Distortion of voltage on the named phase, as a percentage of the fundamental.",
+      "expand": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "thd-current-{a,b,c}": {
+      "datatype": "float",
+      "unit": "%",
+      "req": "MAY",
+      "description": "Total Harmonic Distortion of current on the named phase, as a percentage of the fundamental.",
+      "expand": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "tdd-current-{a,b,c}": {
+      "datatype": "float",
+      "unit": "%",
+      "req": "MAY",
+      "description": "Total Demand Distortion of current on the named phase: like THD-current but normalized to the demand interval's peak current rather than the instantaneous fundamental.",
+      "expand": [
+        "a",
+        "b",
+        "c"
+      ]
+    }
+  }
+}

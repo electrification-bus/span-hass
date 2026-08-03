@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.doe",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "import-limit": {
+      "datatype": "json",
+      "req": "MAY",
+      "description": "The import-side operating envelope: a JSON array of one or more envelope objects (schema below), ordered by `start-time`. Absent when there is no import limit."
+    },
+    "export-limit": {
+      "datatype": "json",
+      "req": "MAY",
+      "description": "The export-side operating envelope, same schema. Absent when there is no export limit."
+    }
+  }
+}

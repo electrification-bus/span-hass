@@ -1,0 +1,52 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.info",
+  "version": "0.2",
+  "status": "DRAFT",
+  "date": "2026-07-30",
+  "properties": {
+    "vendor-name": {
+      "datatype": "string",
+      "req": "SHOULD",
+      "description": "Manufacturer name (e.g., \"SPAN\", \"Tesla\", \"Rheem\")."
+    },
+    "serial-number": {
+      "datatype": "string",
+      "req": "SHOULD",
+      "description": "Device serial number."
+    },
+    "model": {
+      "datatype": "string",
+      "req": "SHOULD",
+      "description": "The human-facing model or product designation, the name a person recognizes (e.g., `Powerwall 3`, `IQ Battery 5P`, or a configuration code such as `MAIN_32`). This is the display designation, not the orderable part code (that is `part-number`). The valid set is publisher-defined and MAY be advertised via Homie `$format` on the property."
+    },
+    "part-number": {
+      "datatype": "string",
+      "req": "MAY",
+      "description": "The vendor's orderable part or SKU code (e.g., Tesla `1232100-00-E`): the specific hardware variant beneath `model`, finer-grained so distinct part numbers (packaging, regional, or minor-revision variants) can share one `model`. A publisher that has both a coded identifier and a human-facing name publishes the code here and the designation in `model`, not a separate product-name property."
+    },
+    "hardware-version": {
+      "datatype": "string",
+      "req": "MAY",
+      "description": "Hardware revision."
+    },
+    "firmware-version": {
+      "datatype": "string",
+      "req": "SHOULD",
+      "description": "Firmware version. Published when the device has firmware; a bare or surveyed device (e.g., a dumb load center) omits it."
+    },
+    "data-model-version": {
+      "datatype": "string",
+      "req": "SHOULD",
+      "description": "Version of the eBus data model this device publishes (e.g., `\"1.0\"`)."
+    },
+    "nameplate-capacity": {
+      "datatype": "float",
+      "unit": "energy",
+      "req": "MAY",
+      "description": "Rated nameplate energy capacity, a term of art for energy-storage devices, reported in the device's native energy unit (a BESS in kWh electrical, a storage water heater in Wh thermal) via `$unit`. It is the static manufacturer rating: `soc` is roughly `soe` / `nameplate-capacity`, while the precise, dynamic denominator is `soc`'s `total-energy-storage` (which diverges from the nameplate figure as the reservoir degrades). Energy-storage device types (BESS, thermal storage) SHOULD publish it; power-rated devices (PV, inverter, EVSE) publish rated power via `nominal-power` instead."
+    }
+  }
+}

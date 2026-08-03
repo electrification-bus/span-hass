@@ -1,0 +1,37 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.charge-limit",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "installer-max": {
+      "datatype": "integer",
+      "unit": "A",
+      "req": "SHOULD",
+      "description": "Installer-configured maximum charge current (breaker rating, J1772 derating): the immutable ceiling."
+    },
+    "owner-limit": {
+      "datatype": "integer",
+      "unit": "A",
+      "settable": true,
+      "req": "MAY",
+      "description": "The owner's charge-current ceiling. Held until changed (\"until further notice\"), not a bounded duration. MUST be `<= installer-max`."
+    },
+    "requested-limit": {
+      "datatype": "integer",
+      "unit": "A",
+      "settable": true,
+      "req": "MAY",
+      "description": "An external controller's (HEMS / grid) charge-current ceiling."
+    },
+    "requested-limit-cause": {
+      "datatype": "enum",
+      "format": "LOCAL_OPTIMIZATION,GRID_OPTIMIZATION,UNKNOWN",
+      "req": "MAY",
+      "description": "Why the external limit is set: `LOCAL_OPTIMIZATION`, `GRID_OPTIMIZATION`, `UNKNOWN`. Records who is reducing charging and why (for attribution and consent)."
+    }
+  }
+}

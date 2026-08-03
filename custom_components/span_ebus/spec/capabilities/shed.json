@@ -1,0 +1,24 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.shed",
+  "version": "0.2",
+  "status": "DRAFT",
+  "date": "2026-07-30",
+  "properties": {
+    "asserted-islanding-state": {
+      "datatype": "enum",
+      "format": "NONE,ON_GRID,OFF_GRID",
+      "settable": true,
+      "req": "MAY",
+      "description": "Consumer-asserted islanding-state for the host's own island scope, consulted only while the host has lost or degraded communication with the device that senses that state (its MID / BESS). Advertised in `$format` as `NONE`, `ON_GRID`, `OFF_GRID` (default `NONE`). See \"Asserted islanding-state\" below."
+    },
+    "policy": {
+      "datatype": "json",
+      "settable": true,
+      "req": "MAY",
+      "description": "The host's shedding algorithm and its parameters: `{ \"algorithm\": <id>, \"parameters\": { … } }`. The parameter object's shape is advertised as a JSON Schema in the property's `$format`. See \"Shed policy\" below."
+    }
+  }
+}

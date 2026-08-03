@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.grid-forming",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "properties": {
+    "capable": {
+      "datatype": "boolean",
+      "req": "MUST",
+      "description": "Static hardware capability: does this inverter support grid-forming operation at all? (when the capability is published)"
+    },
+    "active": {
+      "datatype": "boolean",
+      "req": "SHOULD",
+      "description": "Current state: is this inverter actively grid-forming right now? When `false` and the inverter is energized, it is grid-following. (when `capable = true`)"
+    }
+  }
+}

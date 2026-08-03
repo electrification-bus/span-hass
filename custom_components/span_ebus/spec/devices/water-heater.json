@@ -1,0 +1,38 @@
+{
+  "$schema": "https://ebus.energy/schemas/device-profile.json",
+  "schema_version": "property-schema-v1",
+  "kind": "device-profile",
+  "device": "energy.ebus.device.water-heater",
+  "version": "0.3",
+  "status": "DRAFT",
+  "date": "2026-07-11",
+  "device_types": {
+    "energy.ebus.device.water-heater": {
+      "capabilities": {
+        "flex": {
+          "catalog": "energy.ebus.capability.flex",
+          "catalog_version": "0.1"
+        },
+        "info": {
+          "catalog": "energy.ebus.capability.info",
+          "catalog_version": "0.2"
+        },
+        "meter": {
+          "catalog": "energy.ebus.capability.meter",
+          "catalog_version": "0.2"
+        },
+        "soc": {
+          "catalog": "energy.ebus.capability.soc",
+          "catalog_version": "0.1"
+        },
+        "status": {
+          "catalog": "energy.ebus.capability.status",
+          "catalog_version": "0.1"
+        },
+        "water-heater": {
+          "catalog": "energy.ebus.capability.water-heater"
+        }
+      }
+    }
+  }
+}

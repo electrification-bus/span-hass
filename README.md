@@ -8,14 +8,14 @@ A custom [Home Assistant](https://www.home-assistant.io/) integration for [SPAN]
 
 `span_ebus` uses **local push** over MQTT — the panel streams real-time updates directly to Home Assistant with no cloud dependency and no polling interval. Every circuit power change, relay toggle, and energy accumulation arrives instantly via the panel's built-in MQTT broker.
 
-> **Active alpha.** The author runs this integration against three SPAN panels in a daisy-chain cascade in their own home; v0.2.0 (2026-06-23) is the first release against SPAN firmware r202627's new parent/child data model. Install base outside the author's home is currently zero — if you adopt the integration you're an early user. Please report any issues on the [GitHub issue tracker](https://github.com/electrification-bus/span-hass/issues).
+> **Active alpha.** The author runs this integration against three SPAN panels in a daisy-chain cascade in their own home. v0.3.0 (2026-08-02) tracks the current SPAN ebus-panel-adapter wire (the parent/child Homie 5 data model); the entity structure is generated from the panel's live `$description` rather than hard-coded, so it follows the adapter as it evolves. If you adopt it you're an early user. Please report any issues on the [GitHub issue tracker](https://github.com/electrification-bus/span-hass/issues).
 
 ## Choosing a SPAN integration
 
 Two community Home Assistant integrations exist for SPAN panels:
 
 - **[SpanPanel/span](https://github.com/SpanPanel/span)** — the established and most widely-adopted SPAN integration. Available in HACS, broad community support, several years of production use across many homes. **This is the right choice for most users.**
-- **`electrification-bus/span-hass`** (this integration) — newer. Uses the SPAN local eBus MQTT API (the Homie 5 parent/child tree publication documented at [SPAN-API-Client-Docs](https://github.com/spanio/SPAN-API-Client-Docs)). Requires SPAN firmware r202627 or later. Single-user install base today.
+- **`electrification-bus/span-hass`** (this integration) — **experimental**. Uses the SPAN local eBus MQTT API (the Homie 5 parent/child tree publication documented at [SPAN-API-Client-Docs](https://github.com/spanio/SPAN-API-Client-Docs)). Requires SPAN firmware r202633 or later, which has not yet shipped as a public SPAN release.
 
 ## Features
 
@@ -34,11 +34,9 @@ Two community Home Assistant integrations exist for SPAN panels:
 
 ## Requirements
 
-- SPAN Panel **MAIN 32**, running firmware **r202627 or later** (the parent/child Homie 5 data model)
+- SPAN Panel **MAIN 32**, running firmware **r202633 or later**: the release that publishes the parent/child Homie 5 tree data model. The entity structure is read from the panel's live `$description`, so the integration follows the adapter's published schema. Firmware older than r202633 publishes a flat data model this integration does not read.
 - Home Assistant 2026.2 or later
 - The panel must be reachable on the local network
-
-> **Pre-r202627 panels**: stay on the [0.1.x line](https://github.com/electrification-bus/span-hass/tree/v0.1.0) until your panel takes the OTA. 0.2.0 was rewritten against the new firmware's tree data model and won't read the flat data model that earlier firmware publishes.
 
 ## Installation
 
@@ -145,7 +143,7 @@ For each circuit on your SPAN Panel:
 |--------|------|-------------|
 | Name | Sensor | Circuit user-label from the SPAN app (diagnostic) |
 | Breaker Rating | Sensor | Breaker amperage (A, diagnostic) |
-| Tab Number | Sensor | Panel space number (diagnostic — renamed from `space` in 0.1.x) |
+| Tab Number | Sensor | Panel space number (diagnostic) |
 | Dipole | Binary Sensor | Two-pole vs single-pole (diagnostic) |
 | Current | Sensor | Real-time current draw (A) |
 | Power | Sensor | Real-time active power (W). Positive = consumption, negative = generation (backfeed from a PV-feeding circuit). |
@@ -155,7 +153,7 @@ For each circuit on your SPAN Panel:
 | Relay Requester | Sensor | Enum showing who last commanded the relay (USER / LOAD_SHED / PCS / CONFIGURATION / FAULT / NONE / UNKNOWN, diagnostic) |
 | Shed Priority | Select | Load-shedding priority (UNKNOWN / OFF_GRID / SOC_THRESHOLD / NEVER). Gated `$settable` — non-settable when commissioned as permanent OFF_GRID. |
 | PCS Managed / PCS Priority | Binary Sensor / Sensor | Whether the PCS is managing this circuit + its priority (diagnostic) |
-| Relay Controllable | Binary Sensor | Whether the relay can be commanded (diagnostic — polarity-flipped successor to 0.1.x's `alwaysOn`) |
+| Relay Controllable | Binary Sensor | Whether the relay can be commanded (diagnostic) |
 | Feeds Device / Feeds Device Type / Feeds Connection Problem / Feeds Count | Sensor / Binary Sensor | Connection capability — populated when the circuit is commissioned as feeding a specific DER (PV, IN_PANEL BESS, EVSE) |
 
 ### Battery Storage (BESS) Device
@@ -196,26 +194,16 @@ Created per EVSE when one is commissioned.
 | Entity | Type | Description |
 |--------|------|-------------|
 | Vendor / Product / Part Number / Serial Number / Firmware Version | Sensor | Identity (diagnostic) |
-| Status | Sensor | EVSE operational state (renamed from `evse/status` in 0.1.x) |
+| Status | Sensor | EVSE operational state |
 | Lock State | Sensor | Cable lock state (read-only per spec) |
 | Advertised Current | Sensor | Current the EVSE is offering to the car (A) |
 | User Max Charge Current / Max Charge Current | Sensor | User-imposed and hardware ceilings (A, diagnostic) |
-
-## Upgrading from 0.1.x
-
-0.2.0 is a clean-cut migration to the SPAN firmware r202627 parent/child Homie 5 data model. **Entity unique-IDs are reset** — every entity gets a new ID reflecting the new tree shape. The old 0.1.x entities will appear in HA's registry as "unavailable" orphans after upgrade.
-
-**Recommended path**: delete and re-add each panel config entry after the upgrade. HA removes all devices and entities the integration created when you delete a config entry, then re-adding via the standard mDNS-discovered flow (passphrase or door bypass) creates the new entities fresh. ~2 min per panel.
-
-**Alternative**: just re-enable the existing config entries. The new entities appear alongside the old orphans (which remain in the registry as `unavailable`). You can then clean up orphans manually via Settings > Devices & Services > each device > Entities > delete unavailable.
-
-Either way, **Energy Dashboard configuration must be rebuilt** — the unique-IDs the dashboard references no longer have backing entities. Recommended: snapshot your pre-upgrade dashboard config with [hass-atlas](https://github.com/electrification-bus/hass-atlas) before upgrading, then re-run hass-atlas against the new entity surface after upgrade.
 
 ## Multi-Panel Support
 
 SPAN panels can be daisy-chained (lead panel + sub-panels). Each panel is set up as a separate config entry and appears as its own device in HA. Sub-devices (circuits, BESS, PV) are grouped under their respective panel.
 
-In **0.2.x** with SPAN firmware r202627 or later, the cross-panel `via_device` hierarchy is **derived automatically** from each panel's `lugs-up/connection/fed-by-device-id` triplet — no manual configuration required. When a downstream panel's upstream feed is published as another `distribution-enclosure` device, this integration links the downstream panel under the upstream one at setup time (and re-evaluates on every init→ready cycle if the publisher updates it).
+The cross-panel `via_device` hierarchy is **derived automatically** from each panel's `lugs-up/connection/fed-by-device-id` triplet, with no manual configuration required. When a downstream panel's upstream feed is published as another `distribution-enclosure` device, this integration links the downstream panel under the upstream one at setup time (and re-evaluates on every init→ready cycle if the publisher updates it).
 
 Result: daisy chains render correctly under Settings → Devices and in the Energy Dashboard Sankey with no service calls.
 
@@ -254,9 +242,9 @@ For the **Energy Dashboard**, use these entity mappings:
 - **Battery**: Dedicated battery integration entities (if BESS is UPSTREAM), or the BESS-feeding circuit's energy entities (if BESS is IN_PANEL). The Upstream Lugs `Fed By Device` entity points at the BESS Homie device-id when the BESS is upstream of the panel.
 - **Individual device consumption**: Each circuit device's "Energy" sensor
 
-> **Position is derived from the connection graph in 0.2.0**, not from the retired `relative-position` / `feed` entities. The lugs `connection` capability and per-circuit `connection` capability publish `feeds-device-id` / `fed-by-device-id` pointers that resolve who-feeds-what at runtime. Consumers like hass-atlas walk this graph automatically.
+> **Position is derived from the connection graph.** The lugs `connection` capability and per-circuit `connection` capability publish `feeds-device-id` / `fed-by-device-id` pointers that resolve who-feeds-what at runtime. Consumers like hass-atlas walk this graph automatically.
 
-For automated Energy Dashboard configuration with topology-aware overlap detection, see [hass-atlas](https://github.com/electrification-bus/hass-atlas) — a companion CLI tool that reads your panel topology and intelligently configures the Energy Dashboard, handling multi-vendor setups (SPAN + Tesla Powerwall + Enphase, etc.) without double-counting. **Requires hass-atlas commit `2fb80d4` or later** for span-hass 0.2.0; earlier versions read the 0.1.x flat shape and degrade silently.
+For automated Energy Dashboard configuration with topology-aware overlap detection, see [hass-atlas](https://github.com/electrification-bus/hass-atlas) — a companion CLI tool that reads your panel topology and intelligently configures the Energy Dashboard, handling multi-vendor setups (SPAN + Tesla Powerwall + Enphase, etc.) without double-counting. **Requires hass-atlas commit `2fb80d4` or later** for tree-model support.
 
 ## Architecture
 
@@ -281,7 +269,8 @@ SPAN Panel                          Home Assistant
 
 - **REST v2 API** is used only during the config flow for authentication, status checks, and CA certificate download
 - **MQTT** handles all runtime communication — property updates, relay commands, and availability
-- **Homie Convention** provides the self-describing schema (`$description`) that the integration uses to auto-generate entities
+- **Homie Convention** provides the self-describing schema (`$description`) that the integration uses to auto-generate entities. Entity *structure* (devices, capabilities, properties, units, enum options, settability) comes from the live `$description`; HA *presentation* (`device_class`, `state_class`, icon, category) comes from a declarative `SEMANTICS` table in `semantics.py`.
+- **Adapter schema is the source of truth.** The vendored `adapter_schema.json` (the adapter's `GET /api/v2/homie/schema` response) enumerates every device class / capability / property the adapter can publish. A coverage test asserts the integration presents all of it; the public [eBus specification](https://github.com/electrification-bus/specification) catalogs are vendored under `spec/` as the upstream conformance reference (pinned by `.ebus-spec.json`, with a `spec-drift` CI job).
 - **ebus-sdk** manages the MQTT connection, device discovery, and property tracking
 
 ### Thread Safety
@@ -310,17 +299,6 @@ nt-2024-a1b2c_nt-2024-a1b2c-tg-pw-1234-mid_grid_islanding-state  # MID grandchil
 The panel-serial prefix is intentional even when the device-id segment already contains the panel serial — it keeps unique-IDs globally distinct across multi-panel installs, and circuit device-ids are bare UUIDs (no panel-serial prefix in the Homie device-id itself), so the panel-serial here is the only thing keeping their unique-IDs distinct across panels.
 
 HA device identifiers use `{panel-serial}_{device-id}`, linked up the tree via `via_device` (lugs / BESS / PV / EVSE / circuit → panel root; MID → BESS).
-
-## Known SPAN API Issues
-
-| Property | Issue | Status |
-|----------|-------|--------|
-| `active-power` (circuits) | Legacy firmware declared `unit="kW"` but actual values were in watts | **Fixed in r202627+ tree data model.** The mapper still hard-codes W regardless, so a panel that hasn't taken the fix surfaces correctly. |
-| `nameplate-capacity` (PV) | Same kW-but-actually-W declaration | **Fixed in r202627+.** Same hard-coded-W fallback. |
-
-This integration works around these bugs by overriding the declared units where needed. Other properties (upstream lugs, power-flows) declare correct units.
-
-Additionally, the import/export energy direction convention is not documented in the SPAN API — it was reverse-engineered by observing energy accumulation patterns under known load conditions. See the [Energy Flows](#energy-flows-and-importexport) section above.
 
 ## Companion Tools
 
@@ -353,11 +331,21 @@ The integration subscribes to MQTT topics at **QoS 1** (at-least-once) rather th
 
 The integration includes periodic memory diagnostics (every 30 minutes) that log peak RSS, tracemalloc-traced memory, paho-mqtt queue depths, and top memory allocators. This is intentional — the integration drives hundreds of entities with continuous MQTT updates, making it a significant memory consumer. The diagnostics have near-zero overhead and have already proven invaluable for diagnosing system-level issues on resource-constrained hardware like the HA Yellow.
 
+## Upgrading from 0.1.x
+
+Moving from the 0.1.x flat data model to the parent/child Homie 5 tree data model (SPAN firmware r202633) is a clean cut. **Entity unique-IDs are reset**: every entity gets a new ID reflecting the tree shape, so the old 0.1.x entities appear in HA's registry as "unavailable" orphans after upgrade.
+
+**Recommended path**: delete and re-add each panel config entry after the upgrade. HA removes all devices and entities the integration created when you delete a config entry, then re-adding via the standard mDNS-discovered flow (passphrase or door bypass) creates the new entities fresh. ~2 min per panel.
+
+**Alternative**: just re-enable the existing config entries. The new entities appear alongside the old orphans (which remain in the registry as `unavailable`). You can then clean up orphans manually via Settings > Devices & Services > each device > Entities > delete unavailable.
+
+Either way, **Energy Dashboard configuration must be rebuilt** — the unique-IDs the dashboard references no longer have backing entities. Recommended: snapshot your pre-upgrade dashboard config with [hass-atlas](https://github.com/electrification-bus/hass-atlas) before upgrading, then re-run hass-atlas against the new entity surface after upgrade.
+
 ## Development
 
 ```bash
 poetry install
-poetry run pytest tests/ -v             # 96 tests
+poetry run pytest tests/ -v             # 47 tests
 poetry run mypy custom_components/span_ebus/
 poetry run ruff check custom_components/span_ebus/
 ```

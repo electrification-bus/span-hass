@@ -1,0 +1,34 @@
+{
+  "$schema": "https://ebus.energy/schemas/property-catalog.json",
+  "schema_version": "property-schema-v1",
+  "kind": "capability-catalog",
+  "capability": "energy.ebus.capability.flex",
+  "version": "0.1",
+  "status": "DRAFT",
+  "date": "2026-07-10",
+  "properties": {
+    "request": {
+      "datatype": "json",
+      "settable": true,
+      "req": "MAY",
+      "description": "The flexibility request to apply, as one atomic object (schema below). Setting this property issues the request; the publisher translates it to the device's native control protocol. The property's `$format` JSONSchema advertises **this device's** control surface (see [§Self-describing control surface](#self-describing-control-surface))."
+    },
+    "active-request": {
+      "datatype": "json",
+      "req": "MAY",
+      "description": "The request currently in force (same shape as `request`) plus an `ends-at` timestamp, or null / absent when none is active."
+    },
+    "response": {
+      "datatype": "enum",
+      "format": "NONE,CURTAILED,BOOSTED,NOT_FOLLOWING",
+      "req": "MAY",
+      "description": "How the device is currently responding: `NONE` (no request in effect), `CURTAILED` (shedding), `BOOSTED` (loading up), `NOT_FOLLOWING` (a request is in effect but the device cannot currently honor it). The decomposed, vendor-neutral replacement for CTA-2045's 15-value operational-state enum."
+    },
+    "opt-out": {
+      "datatype": "enum",
+      "format": "NONE,LOCAL,GRID,ALL",
+      "req": "MAY",
+      "description": "The customer's demand-response opt-out stance: `NONE` (participating), `LOCAL` (opted out of local-EMS optimization only), `GRID` (opted out of grid / utility optimization only), `ALL` (opted out of both). See [§Opt-out and cause](#opt-out-and-cause)."
+    }
+  }
+}

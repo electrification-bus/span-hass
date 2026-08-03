@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 import contextlib
 from datetime import timedelta
 import logging
@@ -25,6 +25,7 @@ from .const import (
     CONF_EBUS_BROKER_PASSWORD,
     CONF_EBUS_BROKER_PORT,
     CONF_EBUS_BROKER_USERNAME,
+    CONF_HOST,
     CONF_SERIAL_NUMBER,
     DESCRIPTION_TIMEOUT,
     DEVICE_READY_TIMEOUT,
@@ -102,6 +103,32 @@ def _log_memory_diagnostics(panels: dict[str, dict[str, Any]]) -> None:
             _LOGGER.exception("tracemalloc snapshot failed")
 
 
+def _build_mqtt_cfg(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Build the ebus-sdk MQTT config from a config entry's stored data.
+
+    Uses the zeroconf-discovered IP (``CONF_HOST``) as the broker host, not the
+    panel's ``.local`` name. On Home Assistant OS the container resolver returns
+    only an unroutable IPv6 link-local/ULA for a dual-stack ``.local`` name and
+    drops the IPv4 A record, so paho (re-resolving the name at connect time)
+    never connects. ``CONF_HOST`` is the routable IPv4 already proven reachable
+    for the REST API, a literal IP never hits that resolver, and the IP is in the
+    panel's certificate SAN so TLS still verifies. Falls back to the ``.local``
+    broker host if no discovered IP is stored.
+    """
+    return {
+        "host": data.get(CONF_HOST) or data[CONF_EBUS_BROKER_HOST],
+        "port": data[CONF_EBUS_BROKER_PORT],
+        "use_tls": True,
+        "tls_ca_data": data.get(CONF_CA_CERT_PEM, ""),
+        "tls_insecure": not data.get(CONF_CA_CERT_PEM),
+        "authentication": {
+            "type": "USER_PASS",
+            "username": data[CONF_EBUS_BROKER_USERNAME],
+            "password": data[CONF_EBUS_BROKER_PASSWORD],
+        },
+    }
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up SPAN Panel (eBus) from a config entry."""
     # Import here so the config flow can be discovered before ebus-sdk is installed.
@@ -110,18 +137,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     serial_number = entry.data[CONF_SERIAL_NUMBER]
 
-    mqtt_cfg = {
-        "host": entry.data[CONF_EBUS_BROKER_HOST],
-        "port": entry.data[CONF_EBUS_BROKER_PORT],
-        "use_tls": True,
-        "tls_ca_data": entry.data.get(CONF_CA_CERT_PEM, ""),
-        "tls_insecure": not entry.data.get(CONF_CA_CERT_PEM),
-        "authentication": {
-            "type": "USER_PASS",
-            "username": entry.data[CONF_EBUS_BROKER_USERNAME],
-            "password": entry.data[CONF_EBUS_BROKER_PASSWORD],
-        },
-    }
+    mqtt_cfg = _build_mqtt_cfg(entry.data)
 
     panel = SpanPanel(hass, serial_number, mqtt_cfg)
     await panel.async_start()
@@ -467,21 +483,44 @@ async def _wait_for_circuit_names(
             unreg()
 
 
+def _flatten_properties(props: dict[str, Any] | None) -> dict[str, Any]:
+    """Flatten the SDK's nested ``{node: {prop: value}}`` to ``{"node/prop": value}``.
+
+    ``DiscoveredDevice.properties`` is nested by node, but the tree snapshot and
+    the node_mappers that read ``device_data["properties"]`` for sibling-gate
+    lookups (e.g. ``"connection/feeds-device-type"``, ``"info/direction"``)
+    expect flat ``"capability/property"`` keys, matching the tree fixture JSONs.
+    Without this flattening those lookups silently miss at runtime and fall back
+    to defaults (settable gates, lug-direction resolution).
+    """
+    flat: dict[str, Any] = {}
+    for node_id, node_props in (props or {}).items():
+        if isinstance(node_props, dict):
+            for prop_id, value in node_props.items():
+                flat[f"{node_id}/{prop_id}"] = value
+        else:
+            # Defensive: an already-flat "node/prop" -> scalar entry.
+            flat[node_id] = node_props
+    return flat
+
+
 def _controller_devices_to_snapshot(
     devices: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     """Adapt the live Controller.devices dict to the snapshot shape the walker expects.
 
-    ``DiscoveredDevice`` carries the same fields the fixture snapshots do —
-    description, properties, parent_id, children_ids, is_root, root_id —
-    just as attributes rather than dict keys. Materialise a dict-of-dicts so
-    ``entities_from_tree`` doesn't need to know the runtime type.
+    ``DiscoveredDevice`` carries the same fields the fixture snapshots do
+    (description, properties, parent_id, children_ids, is_root, root_id) just as
+    attributes rather than dict keys. Materialise a dict-of-dicts so
+    ``entities_from_tree`` doesn't need to know the runtime type. Properties are
+    flattened from the SDK's nested ``{node: {prop: value}}`` to the flat
+    ``{"node/prop": value}`` shape the mappers and fixtures use.
     """
     out: dict[str, dict[str, Any]] = {}
     for device_id, dev in devices.items():
         out[device_id] = {
             "description": dev.description or {},
-            "properties": dict(dev.properties or {}),
+            "properties": _flatten_properties(dev.properties),
             "parent_id": getattr(dev, "parent_id", None),
             "children_ids": list(getattr(dev, "children_ids", []) or []),
             "is_root": getattr(dev, "is_root", device_id == device_id),
@@ -539,8 +578,8 @@ def _stamp_device_presentation(
 def _resolve_upstream_panel(panel: Any) -> str | None:
     """Read the publisher's upstream-topology pointer for this panel.
 
-    G3P-24911 publishes the cascade topology via the lugs-up ``connection``
-    capability: ``fed-by-device-id`` carries the serial of whatever feeds this
+    The panel firmware publishes the cascade topology via the lugs-up
+    ``connection`` capability: ``fed-by-device-id`` carries the serial of whatever feeds this
     panel, and ``fed-by-device-type`` distinguishes a sister panel
     (``energy.ebus.device.distribution-enclosure`` — a downstream panel in a
     cascade) from a BESS feeding from above (``energy.ebus.device.bess``) or

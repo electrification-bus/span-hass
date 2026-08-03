@@ -4,6 +4,26 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-02
+
+The 0.3.0 release re-tracks the **current SPAN ebus-panel-adapter wire** and rebuilds the entity mapper around the panel's live `$description` instead of hand-written per-capability code, building on the parent/child tree data model introduced in 0.2.0. The entity `unique_id` format is unchanged, so re-enabling existing config entries carries entities over.
+
+### Fixed
+
+- **Broker connection on Home Assistant OS.** The integration now dials the panel's discovered IP address for the MQTT broker instead of its `span-<serial>.local` mDNS name. On HA OS the supervisor resolver (CoreDNS `mdns` plugin) returns only the panel's unroutable IPv6 ULA and drops the IPv4 `A` record for a dual-stack `.local` name, so the client "connected" but received zero retained messages and setup failed with "Timed out waiting for description". The literal IP (already discovered for the REST config flow, and present in the panel certificate's SAN so TLS still verifies directly) never touches that resolver. Non-HA-OS installs were unaffected but dial the IP now too.
+- **Nested-property tree snapshots** are flattened before the entity build, so a panel that publishes nested property dicts no longer loses entities.
+
+### Changed
+
+- **Description-driven entity mapper.** Entity *structure* — which devices, capabilities and properties exist, plus each property's unit, enum options and settability — is now read from the panel's live Homie `$description` at runtime. HA *presentation* — `device_class`, `state_class`, icon, `entity_category`, name — comes from a single declarative `SEMANTICS` table (`semantics.py`). The hand-written per-capability mappers are retired. The integration now surfaces whatever the adapter publishes, so a wire addition flows through with no code change; only genuinely new *presentation* needs a table row.
+- **Tracks the current adapter wire.** Modelled against SPAN firmware `dcj/260720/2244`, the dev build intended to ship as **r202633** (the release that publishes the parent/child tree data model). EVSE entities, published by the adapter today, are surfaced.
+- **Requires `ebus-sdk >= 0.17.0`.**
+
+### Added
+
+- **Vendored adapter schema as the source of truth.** `custom_components/span_ebus/adapter_schema.json` captures the adapter's `GET /api/v2/homie/schema` response — every device class / capability / property the adapter can publish — with build provenance. A coverage test asserts every entry maps to an HA entity, so a future wire addition the integration doesn't yet present fails CI. Refresh with `scripts/sync_adapter_schema.py`.
+- **Vendored eBus spec catalogs + drift guard.** The public [eBus specification](https://github.com/electrification-bus/specification) capability/device catalogs are vendored under `custom_components/span_ebus/spec/` as the upstream conformance reference, pinned by a root `.ebus-spec.json` lockfile, with a `spec-drift` CI job that flags when the pinned spec advances. Refresh with `scripts/sync_spec.py`.
+
 ## [0.2.1] — 2026-06-24
 
 ### Fixed
@@ -12,7 +32,7 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [0.2.0] — 2026-06-23
 
-The 0.2.0 release migrates the integration to the **parent/child Homie 5 data model** that lands in SPAN firmware r202627. The panel publishes itself as a tree — panel root + per-lug / per-BESS / per-MID / per-PV / per-EVSE / per-circuit child devices — and the integration walks that tree, registering one HA device per Homie device. The old flat data model is gone.
+The 0.2.0 release migrates the integration to the first-draft **parent/child Homie 5 data model**, which SPAN never released. The panel publishes itself as a tree — panel root + per-lug / per-BESS / per-MID / per-PV / per-EVSE / per-circuit child devices — and the integration walks that tree, registering one HA device per Homie device. The old flat data model is gone.
 
 > **BREAKING — unique-IDs reset.** Every entity gets a new `unique_id` of the form `{panel-serial}_{device-id}_{capability}_{property-id}` reflecting the new tree shape. No 0.1.x → 0.2.0 translation is provided; old entities surface as unavailable orphans in HA's registry after upgrade. Recommended cleanup is **delete + re-add each panel config entry** for a clean state. See README §"Upgrading from 0.1.x" for details.
 
@@ -26,13 +46,13 @@ The 0.2.0 release migrates the integration to the **parent/child Homie 5 data mo
 - **PCS capability** on the panel root — surfaces 17 entities covering import / feed-import / grid-import / off-grid-import / requested-import limits, their enablement enums, and their active boolean siblings. Joined by the relocated `grid-islandable` and `breaker-rating` from the old core node.
 - **Per-direction lugs entities** — upstream lugs and downstream lugs are now distinct HA devices ("c192x Upstream Lugs" / "c192x Downstream Lugs"), each with its own info / meter / connection capability entities. The composite-suffix `{serial}_lugs-upstream_imported-energy` unique-ID format is replaced by the cleaner per-device shape.
 - **Auto-refresh of device names.** Whenever any device's init→ready edge fires, the integration walks the descendant tree and refreshes HA's device names from the publisher's current values (circuit user-labels in particular). Picks up renames in the SPAN app without a HA restart.
-- **Auto-derived multi-panel hierarchy.** When a panel is fed from an upstream sister panel, the integration reads `lugs-up/connection/fed-by-device-id` (a SPAN firmware r202627 feature — each panel publishes its upstream-topology pointer on its lugs-up `connection` capability) and sets `via_device` on the downstream panel's HA device automatically. Daisy chains render nested under their feeder in Settings → Devices and in Energy Dashboard Sankeys with no user action — replacing the manually-invoked `link_subpanel` service from 0.1.x. The via_device link re-evaluates on every init→ready cycle, so a publisher-side topology change propagates without a reload.
+- **Auto-derived multi-panel hierarchy.** When a panel is fed from an upstream sister panel, the integration reads `lugs-up/connection/fed-by-device-id` (a tree-model feature: each panel publishes its upstream-topology pointer on its lugs-up `connection` capability) and sets `via_device` on the downstream panel's HA device automatically. Daisy chains render nested under their feeder in Settings → Devices and in Energy Dashboard Sankeys with no user action — replacing the manually-invoked `link_subpanel` service from 0.1.x. The via_device link re-evaluates on every init→ready cycle, so a publisher-side topology change propagates without a reload.
 - **Auto-add of late-arriving descendants.** Slow boot cascades that deliver a descendant's `$state=ready` after initial setup completes (observed on heavily-loaded panels with 19+ circuits) are now caught by a post-setup tree-state hook and registered automatically — no manual reload needed.
 
 ### Changed
 
 - **BREAKING — entity unique-ID format** — see release header.
-- **BREAKING — required SPAN firmware** — r202627 or later (the release in which the tree data model lands). Earlier firmware publishes the flat data model that this integration version no longer understands. Stay on the 0.1.x line until your panel takes the OTA.
+- **BREAKING — required SPAN firmware** — a build publishing the first-draft parent/child tree data model, which SPAN never released publicly. Earlier firmware publishes the flat data model that this integration version no longer understands.
 - **BREAKING — required ebus-sdk version** — `ebus-sdk >= 0.3.1` (ships the tree-rooted Controller mode and the description-after-state reconcile fix that this integration's discovery flow depends on).
 - **Lugs are HA devices now.** In 0.1.x, lug entities hung off the panel device with composite unique-IDs (`{serial}_lugs-upstream_imported-energy`). In 0.2.0 the upstream and downstream lugs each get their own HA device under the panel, with simple property-only entity IDs.
 - **Site metering is gone as a sub-device.** The 0.1.x `power-flows` sub-device is now a `power-flows` capability on the panel root device. The four directional entities (`pv-power`, `battery-power`, `grid-power`, `site-power`) live on the panel device itself.
@@ -44,8 +64,8 @@ The 0.2.0 release migrates the integration to the **parent/child Homie 5 data mo
 ### Fixed
 
 - **Energy counter monotonicity workaround preserved.** The `total_increasing` energy sensors continue to suppress occasional 0.1 Wh decreases from the firmware ([AN-001](docs/appnote-AN001-energy-counter-monotonicity.md) still applies). Held-value behavior is unchanged from 0.1.x.
-- **Active-power firmware bug now publisher-fixed in tree-v1.** SPAN's r202627 firmware publishes circuit `active-power` and PV `nameplate-capacity` in correct units (W rather than the legacy mis-declared kW). The mapper still hard-codes W regardless of what the description says, so a panel that hasn't taken the fix surfaces correctly either way.
-- **Lugs connection entities create reliably on first setup** (SPAN-urn). Previously the lugs `connection` mapper bailed when its `info/direction` property hadn't been delivered yet at the moment of initial tree-walk — leaving 8 connection entities silently absent across both lugs devices. Now the mapper falls back to the device-id suffix (`-lugs-up` / `-lugs-dn`) when the property isn't loaded yet, so entities create on the first pass regardless of property-arrival timing.
+- **Active-power firmware bug publisher-fixed in r202627.** SPAN firmware r202627 publishes circuit `active-power` and PV `nameplate-capacity` in correct units (W rather than the legacy mis-declared kW). The mapper still hard-codes W regardless of what the description says, so a panel that hasn't taken the fix surfaces correctly either way.
+- **Lugs connection entities create reliably on first setup.** Previously the lugs `connection` mapper bailed when its `info/direction` property hadn't been delivered yet at the moment of initial tree-walk — leaving 8 connection entities silently absent across both lugs devices. Now the mapper falls back to the device-id suffix (`-lugs-up` / `-lugs-dn`) when the property isn't loaded yet, so entities create on the first pass regardless of property-arrival timing.
 - **Late-arriving descendant cascades self-heal.** When the SDK delivers a descendant's `$state=ready` after initial setup has timed out — observed on busy panels where retained-message backlog delays `$state` arrival — the post-setup tree-state hook re-registers the descendant automatically.
 - **Circuit renames in the SPAN app propagate to HA device names.** Previously the `info/name` property-update callback called `async_get_or_create`, which silently ignores the `name=` kwarg on already-existing devices — so renaming a breaker in the SPAN app updated the entity values but left the HA device label stale. Now the callback routes through `async_update_device` when the device exists (and respects `name_by_user` so user-set custom labels stick).
 
