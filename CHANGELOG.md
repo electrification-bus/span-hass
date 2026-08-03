@@ -4,7 +4,7 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
-## [0.3.0] — 2026-08-02
+## [0.3.0] — 2026-08-03
 
 The 0.3.0 release re-tracks the **current SPAN ebus-panel-adapter wire** and rebuilds the entity mapper around the panel's live `$description` instead of hand-written per-capability code, building on the parent/child tree data model introduced in 0.2.0. The entity `unique_id` format is unchanged, so re-enabling existing config entries carries entities over.
 
