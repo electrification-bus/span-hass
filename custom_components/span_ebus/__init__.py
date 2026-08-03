@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 import contextlib
 from datetime import timedelta
 import logging
@@ -25,6 +25,7 @@ from .const import (
     CONF_EBUS_BROKER_PASSWORD,
     CONF_EBUS_BROKER_PORT,
     CONF_EBUS_BROKER_USERNAME,
+    CONF_HOST,
     CONF_SERIAL_NUMBER,
     DESCRIPTION_TIMEOUT,
     DEVICE_READY_TIMEOUT,
@@ -102,6 +103,32 @@ def _log_memory_diagnostics(panels: dict[str, dict[str, Any]]) -> None:
             _LOGGER.exception("tracemalloc snapshot failed")
 
 
+def _build_mqtt_cfg(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Build the ebus-sdk MQTT config from a config entry's stored data.
+
+    Uses the zeroconf-discovered IP (``CONF_HOST``) as the broker host, not the
+    panel's ``.local`` name. On Home Assistant OS the container resolver returns
+    only an unroutable IPv6 link-local/ULA for a dual-stack ``.local`` name and
+    drops the IPv4 A record, so paho (re-resolving the name at connect time)
+    never connects. ``CONF_HOST`` is the routable IPv4 already proven reachable
+    for the REST API, a literal IP never hits that resolver, and the IP is in the
+    panel's certificate SAN so TLS still verifies. Falls back to the ``.local``
+    broker host if no discovered IP is stored.
+    """
+    return {
+        "host": data.get(CONF_HOST) or data[CONF_EBUS_BROKER_HOST],
+        "port": data[CONF_EBUS_BROKER_PORT],
+        "use_tls": True,
+        "tls_ca_data": data.get(CONF_CA_CERT_PEM, ""),
+        "tls_insecure": not data.get(CONF_CA_CERT_PEM),
+        "authentication": {
+            "type": "USER_PASS",
+            "username": data[CONF_EBUS_BROKER_USERNAME],
+            "password": data[CONF_EBUS_BROKER_PASSWORD],
+        },
+    }
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up SPAN Panel (eBus) from a config entry."""
     # Import here so the config flow can be discovered before ebus-sdk is installed.
@@ -110,18 +137,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     serial_number = entry.data[CONF_SERIAL_NUMBER]
 
-    mqtt_cfg = {
-        "host": entry.data[CONF_EBUS_BROKER_HOST],
-        "port": entry.data[CONF_EBUS_BROKER_PORT],
-        "use_tls": True,
-        "tls_ca_data": entry.data.get(CONF_CA_CERT_PEM, ""),
-        "tls_insecure": not entry.data.get(CONF_CA_CERT_PEM),
-        "authentication": {
-            "type": "USER_PASS",
-            "username": entry.data[CONF_EBUS_BROKER_USERNAME],
-            "password": entry.data[CONF_EBUS_BROKER_PASSWORD],
-        },
-    }
+    mqtt_cfg = _build_mqtt_cfg(entry.data)
 
     panel = SpanPanel(hass, serial_number, mqtt_cfg)
     await panel.async_start()

@@ -5,8 +5,17 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from custom_components.span_ebus import (
+    _build_mqtt_cfg,
     _controller_devices_to_snapshot,
     _resolve_upstream_panel,
+)
+from custom_components.span_ebus.const import (
+    CONF_CA_CERT_PEM,
+    CONF_EBUS_BROKER_HOST,
+    CONF_EBUS_BROKER_PASSWORD,
+    CONF_EBUS_BROKER_PORT,
+    CONF_EBUS_BROKER_USERNAME,
+    CONF_HOST,
 )
 
 
@@ -49,6 +58,42 @@ def test_controller_devices_to_snapshot_flattens_nested_properties() -> None:
         "switch/relay-controllable": True,
         "info/direction": "UPSTREAM",
     }
+
+
+def test_build_mqtt_cfg_prefers_discovered_ip_over_local_broker_host() -> None:
+    """The MQTT host must be the reachable discovered IP, not the panel ``.local``.
+
+    On HA OS the container resolver returns an IPv6-only (unroutable) result for
+    ``.local`` broker names; dialing the discovered IP (which is also in the cert
+    SAN) sidesteps that resolver entirely.
+    """
+    cfg = _build_mqtt_cfg(
+        {
+            CONF_HOST: "192.168.128.95",
+            CONF_EBUS_BROKER_HOST: "span-nt-2143-c1akc.local",
+            CONF_EBUS_BROKER_PORT: 8883,
+            CONF_EBUS_BROKER_USERNAME: "nt-2143-c1akc",
+            CONF_EBUS_BROKER_PASSWORD: "pw",
+            CONF_CA_CERT_PEM: "CA-PEM",
+        }
+    )
+    assert cfg["host"] == "192.168.128.95"
+    assert cfg["port"] == 8883
+    assert cfg["tls_insecure"] is False  # CA present -> verify
+
+
+def test_build_mqtt_cfg_falls_back_to_broker_host_without_discovered_ip() -> None:
+    """Without a stored discovered IP, fall back to the ``.local`` broker host."""
+    cfg = _build_mqtt_cfg(
+        {
+            CONF_EBUS_BROKER_HOST: "span-nt-2143-c1akc.local",
+            CONF_EBUS_BROKER_PORT: 8883,
+            CONF_EBUS_BROKER_USERNAME: "u",
+            CONF_EBUS_BROKER_PASSWORD: "p",
+        }
+    )
+    assert cfg["host"] == "span-nt-2143-c1akc.local"
+    assert cfg["tls_insecure"] is True  # no CA
 
 
 def test_resolve_upstream_panel_returns_serial_for_distribution_enclosure() -> None:
