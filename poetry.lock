@@ -1421,14 +1421,14 @@ files = [
 
 [[package]]
 name = "ebus-mqtt-client"
-version = "0.2.0"
+version = "0.3.0"
 description = "Standalone MQTT client wrapper around paho-mqtt with TLS, reconnection, subscription recovery, and topic pattern matching"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "ebus_mqtt_client-0.2.0-py3-none-any.whl", hash = "sha256:0d652f732fb6eabf5d183643624b407c8e95bec45b70eed5b38d796f045391c2"},
-    {file = "ebus_mqtt_client-0.2.0.tar.gz", hash = "sha256:9a758b1296f54b2facc372c1ec383460b582e6e5e290491a1175dc3a268b750b"},
+    {file = "ebus_mqtt_client-0.3.0-py3-none-any.whl", hash = "sha256:9afae49489295032ab5dc238fb33ae719412047fd78455954cb936504f824d4a"},
+    {file = "ebus_mqtt_client-0.3.0.tar.gz", hash = "sha256:699bac2d16b7455bdef34de1edcf8e2048cda7626d8f84ab3e201da1cb37bd4c"},
 ]
 
 [package.dependencies]
@@ -1439,18 +1439,18 @@ dev = ["mypy (>=1.8)", "pytest", "ruff (>=0.15.0)"]
 
 [[package]]
 name = "ebus-sdk"
-version = "0.15.0"
+version = "0.17.0"
 description = "Python SDK for Homie MQTT Convention (eBus)"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "ebus_sdk-0.15.0-py3-none-any.whl", hash = "sha256:81d2b8607c2c355e45a27478a94421b2d9c2684bcbbc126ea433dd654545e953"},
-    {file = "ebus_sdk-0.15.0.tar.gz", hash = "sha256:301c57675d6fabe081a97e89b7ab49d88523de2e25d7d526a1c2ad0954cbda87"},
+    {file = "ebus_sdk-0.17.0-py3-none-any.whl", hash = "sha256:5232fa9990298b8785d092f7446e9b4a1a9d4a535a8422666c9b89c57d6248d0"},
+    {file = "ebus_sdk-0.17.0.tar.gz", hash = "sha256:7014d2c73b5eb4befb59b0d9c682b6b56a46698c47201ae49fb61af3b99559bb"},
 ]
 
 [package.dependencies]
-ebus-mqtt-client = ">=0.2.0"
+ebus-mqtt-client = ">=0.3.0"
 
 [package.extras]
 dev = ["jsonschema (>=4.0)", "pytest"]
@@ -5614,4 +5614,4 @@ ifaddr = ">=0.1.7"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.14.2,<3.15"
-content-hash = "d6c297e6c416bd16a115be2de01e0645b7066168a0e9b12559b0dfa3a4f9763e"
+content-hash = "1a9f0ecf9c66042aaaf95148d17558681458ba03ff18b750a6870376404ee1f2"
