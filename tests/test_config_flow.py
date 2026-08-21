@@ -7,6 +7,8 @@ from unittest.mock import patch
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import TextSelector, TextSelectorType
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -105,6 +107,46 @@ async def test_user_flow_door_bypass(
         result["flow_id"], {}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_passphrase_field_is_masked(
+    hass: HomeAssistant,
+    mock_api_client,
+) -> None:
+    """The HOP passphrase must never render as a plain text field."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"host": MOCK_HOST}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "auth_passphrase"}
+    )
+    assert result["step_id"] == "auth_passphrase"
+
+    selector = result["data_schema"].schema["passphrase"]
+    assert isinstance(selector, TextSelector)
+    assert selector.config["type"] == TextSelectorType.PASSWORD
+
+
+async def test_flow_uses_home_assistant_shared_session(
+    hass: HomeAssistant,
+    mock_api_client,
+) -> None:
+    """The flow must hand HA's shared session in, never build its own."""
+    with patch(
+        "custom_components.span_ebus.config_flow.SpanApiClient",
+        return_value=mock_api_client,
+    ) as client_cls:
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"host": MOCK_HOST}
+        )
+
+    assert client_cls.call_args.args == (MOCK_HOST, async_get_clientsession(hass))
 
 
 async def test_user_flow_cannot_connect(

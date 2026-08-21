@@ -7,10 +7,11 @@
   "documentation": "https://github.com/electrification-bus/span-hass",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/electrification-bus/span-hass/issues",
+  "loggers": ["ebus_sdk", "homie", "paho"],
   "requirements": ["ebus-sdk>=0.17.0"],
-  "version": "0.3.0",
+  "version": "0.3.1",
   "zeroconf": [
-    {"type": "_ebus._tcp.local."},
-    {"type": "_secure-mqtt._tcp.local."}
+    {"type": "_ebus._tcp.local.", "name": "span-*"},
+    {"type": "_secure-mqtt._tcp.local.", "name": "span-*"}
   ]
 }
