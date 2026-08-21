@@ -251,7 +251,7 @@ class SpanPanel:
 
     def _on_device_discovered(self, device: DiscoveredDevice) -> None:
         """Handle a new device discovery on the tree (paho-mqtt thread)."""
-        _LOGGER.info(
+        _LOGGER.debug(
             "SPAN tree discovered device %s (state=%s)", device.device_id, device.state
         )
         if device.device_id == self.serial_number and device.state == "ready":
@@ -303,7 +303,7 @@ class SpanPanel:
         effective-state rule cascades root non-ready into descendants, so a
         root transition can flip every descendant's availability in one go.
         """
-        _LOGGER.info(
+        _LOGGER.debug(
             "Device %s state: %s → %s", device.device_id, old_state, new_state
         )
 
@@ -332,7 +332,7 @@ class SpanPanel:
         the HA event loop so consumers (``__init__.py``) can retire the
         corresponding HA device + entities.
         """
-        _LOGGER.info("Device %s removed from tree", device.device_id)
+        _LOGGER.debug("Device %s removed from tree", device.device_id)
         self.hass.loop.call_soon_threadsafe(
             self._dispatch_device_removed, device.device_id
         )

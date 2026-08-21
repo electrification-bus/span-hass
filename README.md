@@ -327,10 +327,6 @@ span-mqtt-sub          # Subscribe to MQTT topics with saved credentials
 
 The integration subscribes to MQTT topics at **QoS 1** (at-least-once) rather than QoS 2 (exactly-once). For continuously-updating sensor data, QoS 1 is perfectly adequate — a duplicate or missed power reading is harmless since the next update arrives within seconds. QoS 2's four-step handshake (PUBREC/PUBREL/PUBCOMP) adds complexity, and paho-mqtt's implementation stores in-flight QoS 2 messages with no timeout, creating a potential accumulation vector if any step is lost. If future firmware or use cases require guaranteed delivery (e.g., for command acknowledgments), QoS can be changed via `MQTT_QOS` in `const.py`. Future options for making this configurable without a code change include reading the `EBUS_HOMIE_MQTT_QOS` environment variable (already supported by the SDK) or adding a QoS setting to the integration's HA options flow.
 
-### Memory Diagnostics
-
-The integration includes periodic memory diagnostics (every 30 minutes) that log peak RSS, tracemalloc-traced memory, paho-mqtt queue depths, and top memory allocators. This is intentional — the integration drives hundreds of entities with continuous MQTT updates, making it a significant memory consumer. The diagnostics have near-zero overhead and have already proven invaluable for diagnosing system-level issues on resource-constrained hardware like the HA Yellow.
-
 ## Upgrading from 0.1.x
 
 Moving from the 0.1.x flat data model to the parent/child Homie 5 tree data model (SPAN firmware r202633) is a clean cut. **Entity unique-IDs are reset**: every entity gets a new ID reflecting the tree shape, so the old 0.1.x entities appear in HA's registry as "unavailable" orphans after upgrade.

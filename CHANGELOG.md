@@ -4,6 +4,30 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-08-21
+
+A hardening release prompted by the review of the [HACS default-catalog submission](https://github.com/hacs/default/pull/8725). Nothing about the entities, the wire, or the SDK requirement changes.
+
+### Fixed
+
+- **The HOP passphrase is no longer typed in clear.** The passphrase step declared its field as a bare `str`, which Home Assistant renders as an ordinary text input, so the passphrase was legible on screen while it was entered. The field is now a `TextSelector` with `TextSelectorType.PASSWORD` and `autocomplete="current-password"`: masked, and offering the browser's saved-password fill. A regression test asserts the selector type, so a future edit cannot quietly unmask it.
+- **Discovery no longer claims every TLS MQTT broker on the network.** The `_secure-mqtt._tcp.local.` zeroconf matcher carried no name filter, so any host advertising that generic service type (a Mosquitto instance, another vendor's broker) raised a "SPAN Panel discovered" card, which then failed against the panel REST API. Both matchers are now scoped to the `span-*` instance names the panels actually publish (`span-<serial>-EBUS`, `span-<serial>-MQTTS`). Real panels are unaffected: each still advertises on both service types and still dedups to one config entry by serial.
+- **The config flow no longer leaks an HTTP session.** `SpanApiClient` built its own `aiohttp.ClientSession` and closed it on exactly one path, so every `cannot_connect` abort and every abandoned setup left a session open. It now requires Home Assistant's shared session, passed in by the config flow via `async_get_clientsession`, which is what an integration is supposed to use. A regression test asserts the flow passes the shared session rather than constructing one.
+
+### Changed
+
+- **The brand icon and logo are distinct images.** `brand/icon.png` and `brand/logo.png` shipped byte-identical (the wordmark letterboxed into a square), as did the `@2x` pair. The icon is now a square mark: the wordmark reversed out of an opaque `#1F1F1F` tile, at the proportions SPAN uses for its own app icon. The logo is the wordmark trimmed to its ink, at its natural 7.04:1 aspect. Every file is regenerated from the 2000px master at the sizes the [Home Assistant brands specification](https://github.com/home-assistant/brands) asks for (256 and 512 square for icons; 256 and 512 tall for logos), interlaced and losslessly recompressed.
+- **Routine MQTT chatter moved to debug.** Per-device discovery, `$state` transitions and tree removals were logged at INFO, which on a three-panel install writes a line per device per event into everyone's log. They are `debug` now. INFO is kept for the events a user should see without asking: a descendant being dropped from the device registry, and an energy counter recovering from suppression (which pairs with the warning that opened it).
+
+### Added
+
+- **Dark-theme logo.** `brand/dark_logo.png` and `brand/dark_logo@2x.png` carry the wordmark in white, because the `#1F1F1F` wordmark was close to invisible against Home Assistant's dark theme. Local `dark_*` brand images are honored by Home Assistant 2026.3 and later.
+- **`loggers` in the manifest**, naming `ebus_sdk`, `homie` and `paho`, so the SDK and transport log levels can be raised from Settings without editing `configuration.yaml`. The SDK logs under the bare name `homie`, which is not otherwise discoverable from the integration.
+
+### Removed
+
+- **The memory-diagnostics scaffolding.** Setting up a config entry called `tracemalloc.start()`, which is process-global: it applied allocation tracing to all of Home Assistant and every other integration, and was never stopped, so unloading or deleting this integration did not restore the instance. It also installed a permanent 30-minute timer that walked the live heap on the event loop, read private paho attributes, and logged at INFO forever. It was added to chase a memory leak on the HA Yellow that turned out to belong to another integration, so its job is done.
+
 ## [0.3.0] — 2026-08-03
 
 The 0.3.0 release re-tracks the **current SPAN ebus-panel-adapter wire** and rebuilds the entity mapper around the panel's live `$description` instead of hand-written per-capability code, building on the parent/child tree data model introduced in 0.2.0. The entity `unique_id` format is unchanged, so re-enabling existing config entries carries entities over.

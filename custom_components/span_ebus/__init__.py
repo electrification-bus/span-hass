@@ -5,18 +5,13 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 import contextlib
-from datetime import timedelta
 import logging
-import resource
-import sys
-import tracemalloc
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
     CIRCUIT_NAMES_TIMEOUT,
@@ -42,66 +37,6 @@ from .util import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-MEMORY_DIAG_INTERVAL = timedelta(minutes=30)
-
-_prev_snapshot: tracemalloc.Snapshot | None = None
-
-
-def _log_memory_diagnostics(panels: dict[str, dict[str, Any]]) -> None:
-    """Log memory diagnostics for all active SPAN panels."""
-    global _prev_snapshot  # noqa: PLW0603
-
-    peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    if sys.platform == "linux":
-        peak_rss *= 1024
-    peak_mb = peak_rss / (1024 * 1024)
-
-    if tracemalloc.is_tracing():
-        traced_current, _ = tracemalloc.get_traced_memory()
-        traced_mb = traced_current / (1024 * 1024)
-    else:
-        traced_mb = 0.0
-
-    panel_stats: list[str] = []
-    for data in panels.values():
-        panel = data.get("panel")
-        if panel is None:
-            continue
-        ctrl = getattr(panel, "controller", None)
-        if ctrl is None:
-            continue
-        device_count = len(ctrl.devices)
-        sub_count = len(ctrl.mqttc.sub_callbacks) if ctrl.mqttc else 0
-        paho_in = 0
-        paho_out = 0
-        if ctrl.mqttc and hasattr(ctrl.mqttc, "mqttc"):
-            paho = ctrl.mqttc.mqttc
-            if hasattr(paho, "_in_messages"):
-                paho_in = len(paho._in_messages)
-            if hasattr(paho, "_out_messages"):
-                paho_out = len(paho._out_messages)
-        panel_stats.append(
-            f"{panel.serial_number}(devices={device_count},subs={sub_count},"
-            f"paho_in={paho_in},paho_out={paho_out})"
-        )
-
-    _LOGGER.info(
-        "Memory diagnostics: peak_rss=%.1fMB, traced=%.1fMB, panels=[%s]",
-        peak_mb,
-        traced_mb,
-        ", ".join(panel_stats) if panel_stats else "none",
-    )
-
-    if tracemalloc.is_tracing():
-        try:
-            snapshot = tracemalloc.take_snapshot()
-            for i, stat in enumerate(snapshot.statistics("filename")[:5], 1):
-                _LOGGER.info("tracemalloc top %d: %s", i, stat)
-            _prev_snapshot = snapshot
-        except Exception:
-            _LOGGER.exception("tracemalloc snapshot failed")
-
 
 def _build_mqtt_cfg(data: Mapping[str, Any]) -> dict[str, Any]:
     """Build the ebus-sdk MQTT config from a config entry's stored data.
@@ -318,23 +253,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "entity_specs": entity_specs,
         "unregister_callbacks": unregister_callbacks,
     }
-
-    if "_memory_diag_unsub" not in hass.data[DOMAIN]:
-        if not tracemalloc.is_tracing():
-            tracemalloc.start()
-            _LOGGER.info("tracemalloc started for memory leak diagnostics")
-
-        def _diag_callback(_now: Any) -> None:
-            panels = {
-                eid: data
-                for eid, data in hass.data.get(DOMAIN, {}).items()
-                if isinstance(data, dict) and "panel" in data
-            }
-            _log_memory_diagnostics(panels)
-
-        hass.data[DOMAIN]["_memory_diag_unsub"] = async_track_time_interval(
-            hass, _diag_callback, MEMORY_DIAG_INTERVAL
-        )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -689,14 +607,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for unreg in data.get("unregister_callbacks", []):
                 unreg()
             await data["panel"].async_stop()
-
-        remaining = {
-            k for k in hass.data.get(DOMAIN, {})
-            if k != "_memory_diag_unsub"
-        }
-        if not remaining:
-            unsub = hass.data[DOMAIN].pop("_memory_diag_unsub", None)
-            if unsub:
-                unsub()
 
     return unload_ok

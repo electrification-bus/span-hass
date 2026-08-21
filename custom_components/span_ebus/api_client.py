@@ -53,30 +53,22 @@ class SpanApiClient:
     Runtime data comes via MQTT/Homie (ebus-sdk Controller).
     """
 
-    def __init__(self, host: str, session: aiohttp.ClientSession | None = None) -> None:
-        """Initialize the API client."""
+    def __init__(self, host: str, session: aiohttp.ClientSession) -> None:
+        """Initialize the API client.
+
+        ``session`` is Home Assistant's shared client session. The client never
+        owns it and must never close it.
+        """
         self._host = host
         self._session = session
-        self._own_session = session is None
 
     @property
     def _base_url(self) -> str:
         return f"http://{self._host}"
 
-    async def _ensure_session(self) -> aiohttp.ClientSession:
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
-            self._own_session = True
-        return self._session
-
-    async def close(self) -> None:
-        """Close the client session if we own it."""
-        if self._own_session and self._session and not self._session.closed:
-            await self._session.close()
-
     async def _get(self, path: str) -> Any:
         """Make a GET request."""
-        session = await self._ensure_session()
+        session = self._session
         url = f"{self._base_url}{path}"
         try:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=API_TIMEOUT)) as resp:
@@ -94,7 +86,7 @@ class SpanApiClient:
 
     async def _post(self, path: str, json_data: dict | None = None) -> Any:
         """Make a POST request."""
-        session = await self._ensure_session()
+        session = self._session
         url = f"{self._base_url}{path}"
         try:
             async with session.post(

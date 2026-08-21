@@ -7,6 +7,12 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 import voluptuous as vol
 
@@ -45,14 +51,10 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _get_client(self) -> SpanApiClient:
         """Get or create the API client."""
         if self._client is None:
-            self._client = SpanApiClient(self._host)
+            self._client = SpanApiClient(
+                self._host, async_get_clientsession(self.hass)
+            )
         return self._client
-
-    async def _close_client(self) -> None:
-        """Close the API client."""
-        if self._client:
-            await self._client.close()
-            self._client = None
 
     async def _fetch_status(self) -> dict[str, str] | None:
         """Fetch panel status, returning errors dict or None on success."""
@@ -156,7 +158,16 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="auth_passphrase",
-            data_schema=vol.Schema({vol.Required("passphrase"): str}),
+            data_schema=vol.Schema(
+                {
+                    vol.Required("passphrase"): TextSelector(
+                        TextSelectorConfig(
+                            type=TextSelectorType.PASSWORD,
+                            autocomplete="current-password",
+                        )
+                    )
+                }
+            ),
             errors=errors,
         )
 
@@ -197,8 +208,6 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
         except Exception:
             _LOGGER.exception("Failed to download CA certificate")
             ca_cert = ""
-        finally:
-            await self._close_client()
 
         return self.async_create_entry(
             title=f"SPAN Panel {self._serial_number}",
