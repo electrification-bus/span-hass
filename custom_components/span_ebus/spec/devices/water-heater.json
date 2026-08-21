@@ -15,15 +15,15 @@
         },
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2"
+          "catalog_version": "0.3"
         },
         "meter": {
           "catalog": "energy.ebus.capability.meter",
-          "catalog_version": "0.2"
+          "catalog_version": "0.4"
         },
         "soc": {
           "catalog": "energy.ebus.capability.soc",
-          "catalog_version": "0.1"
+          "catalog_version": "0.2"
         },
         "status": {
           "catalog": "energy.ebus.capability.status",

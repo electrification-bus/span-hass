@@ -3,9 +3,9 @@
   "schema_version": "property-schema-v1",
   "kind": "device-profile",
   "device": "energy.ebus.device.distribution-enclosure",
-  "version": "0.12",
+  "version": "0.14",
   "status": "DRAFT",
-  "date": "2026-07-30",
+  "date": "2026-08-20",
   "device_types": {
     "energy.ebus.device.circuit": {
       "role": "child",
@@ -16,7 +16,7 @@
       "capabilities": {
         "breaker": {
           "catalog": "energy.ebus.capability.breaker",
-          "catalog_version": "0.1"
+          "catalog_version": "0.2"
         },
         "doe": {
           "catalog": "energy.ebus.capability.doe",
@@ -32,11 +32,11 @@
         },
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2"
+          "catalog_version": "0.3"
         },
         "meter": {
           "catalog": "energy.ebus.capability.meter",
-          "catalog_version": "0.2"
+          "catalog_version": "0.4"
         },
         "pcs": {
           "catalog": "energy.ebus.capability.pcs",
@@ -44,7 +44,7 @@
         },
         "power-flows": {
           "catalog": "energy.ebus.capability.power-flows",
-          "catalog_version": "0.1"
+          "catalog_version": "0.3"
         },
         "price": {
           "catalog": "energy.ebus.capability.price",
@@ -77,11 +77,11 @@
         },
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2"
+          "catalog_version": "0.3"
         },
         "meter": {
           "catalog": "energy.ebus.capability.meter",
-          "catalog_version": "0.2"
+          "catalog_version": "0.4"
         },
         "status": {
           "catalog": "energy.ebus.capability.status",
@@ -89,7 +89,7 @@
         },
         "switch": {
           "catalog": "energy.ebus.capability.switch",
-          "catalog_version": "0.1"
+          "catalog_version": "0.3"
         }
       }
     },
@@ -98,15 +98,15 @@
       "capabilities": {
         "connection": {
           "catalog": "energy.ebus.capability.connection",
-          "catalog_version": "0.1"
+          "catalog_version": "0.2"
         },
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2"
+          "catalog_version": "0.3"
         },
         "meter": {
           "catalog": "energy.ebus.capability.meter",
-          "catalog_version": "0.2"
+          "catalog_version": "0.4"
         }
       }
     },
@@ -115,11 +115,11 @@
       "capabilities": {
         "grid": {
           "catalog": "energy.ebus.capability.grid",
-          "catalog_version": "0.1"
+          "catalog_version": "0.2"
         },
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2"
+          "catalog_version": "0.3"
         }
       }
     },
@@ -128,11 +128,11 @@
       "capabilities": {
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2"
+          "catalog_version": "0.3"
         },
         "meter": {
           "catalog": "energy.ebus.capability.meter",
-          "catalog_version": "0.2"
+          "catalog_version": "0.4"
         }
       }
     }

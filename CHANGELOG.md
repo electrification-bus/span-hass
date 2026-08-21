@@ -4,6 +4,10 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Changed
+
+- **Re-vendored the eBus specification catalogs** at upstream `7ee7ca9` (framework 0.9), advancing the pin from the 2026-08-02 sync. Reference data only: no entity, wire or behavior change, and the pinned capability set is unchanged in membership. The substantive upstream movement is that `power-flows` (0.1 to 0.3) now documents the reference directions the panel has always published (`grid` positive = exporting, `battery` positive = charging, `pv` negative while producing), and `meter` (0.2 to 0.4) spells out that a circuit hosted in a distribution enclosure meters in the enclosure frame. Both are corrections to the specification to match the shipped implementation, not changes to it. `meter` also gains an optional `shared-with-device-ids`, which the adapter does not publish yet.
+
 ## [0.3.1] — 2026-08-21
 
 A hardening release prompted by the review of the [HACS default-catalog submission](https://github.com/hacs/default/pull/8725). Nothing about the entities, the wire, or the SDK requirement changes.

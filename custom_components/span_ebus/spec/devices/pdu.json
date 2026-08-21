@@ -11,12 +11,12 @@
       "capabilities": {
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2",
+          "catalog_version": "0.3",
           "req": "MUST"
         },
         "meter": {
           "catalog": "energy.ebus.capability.meter",
-          "catalog_version": "0.2",
+          "catalog_version": "0.4",
           "req": "MAY"
         },
         "status": {

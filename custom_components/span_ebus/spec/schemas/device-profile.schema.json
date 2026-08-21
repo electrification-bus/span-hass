@@ -45,7 +45,7 @@
         "catalog_version": { "type": "string" },
         "req": {
           "$ref": "#/$defs/req",
-          "description": "the model's capability-level conformance guidance for this device type, where it states one; absent means the model does not (the default is MAY, per framework principle 8)"
+          "description": "the model's capability-level guidance for this device type, where it states one; absent means the model does not (the default is MAY, per framework principle 8). SHOULD means the device type typically publishes this capability; MUST is reserved for a capability every conformant publisher of the type can supply. It never means the device must have the underlying function: see framework.md, Conformance Latitude."
         }
       }
     }
