@@ -3,27 +3,27 @@
   "schema_version": "property-schema-v1",
   "kind": "device-profile",
   "device": "energy.ebus.device.bess",
-  "version": "0.14",
+  "version": "0.15",
   "status": "DRAFT",
-  "date": "2026-07-30",
+  "date": "2026-08-20",
   "device_types": {
     "energy.ebus.device.battery": {
       "role": "child",
       "capabilities": {
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2",
+          "catalog_version": "0.3",
           "req": "MUST"
         },
         "meter": {
           "catalog": "energy.ebus.capability.meter",
-          "catalog_version": "0.2",
+          "catalog_version": "0.4",
           "req": "SHOULD"
         },
         "soc": {
           "catalog": "energy.ebus.capability.soc",
-          "catalog_version": "0.1",
-          "req": "MUST"
+          "catalog_version": "0.2",
+          "req": "SHOULD"
         },
         "status": {
           "catalog": "energy.ebus.capability.status",
@@ -42,13 +42,13 @@
         },
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2",
+          "catalog_version": "0.3",
           "req": "MUST"
         },
         "meter": {
           "catalog": "energy.ebus.capability.meter",
-          "catalog_version": "0.2",
-          "req": "MUST"
+          "catalog_version": "0.4",
+          "req": "SHOULD"
         },
         "output-island": {
           "catalog": "energy.ebus.capability.output-island",
@@ -57,18 +57,18 @@
         },
         "power-flows": {
           "catalog": "energy.ebus.capability.power-flows",
-          "catalog_version": "0.1",
+          "catalog_version": "0.3",
           "req": "MAY"
         },
         "soc": {
           "catalog": "energy.ebus.capability.soc",
-          "catalog_version": "0.1",
-          "req": "MUST"
+          "catalog_version": "0.2",
+          "req": "SHOULD"
         },
         "status": {
           "catalog": "energy.ebus.capability.status",
           "catalog_version": "0.1",
-          "req": "MUST"
+          "req": "SHOULD"
         }
       }
     },
@@ -77,17 +77,17 @@
       "capabilities": {
         "grid-forming": {
           "catalog": "energy.ebus.capability.grid-forming",
-          "catalog_version": "0.1",
+          "catalog_version": "0.2",
           "req": "MAY"
         },
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2",
+          "catalog_version": "0.3",
           "req": "MUST"
         },
         "meter": {
           "catalog": "energy.ebus.capability.meter",
-          "catalog_version": "0.2",
+          "catalog_version": "0.4",
           "req": "SHOULD"
         },
         "status": {
@@ -102,12 +102,12 @@
       "capabilities": {
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2",
+          "catalog_version": "0.3",
           "req": "MUST"
         },
         "meter": {
           "catalog": "energy.ebus.capability.meter",
-          "catalog_version": "0.2",
+          "catalog_version": "0.4",
           "req": "MUST"
         }
       }
@@ -117,12 +117,12 @@
       "capabilities": {
         "grid": {
           "catalog": "energy.ebus.capability.grid",
-          "catalog_version": "0.1",
+          "catalog_version": "0.2",
           "req": "MUST"
         },
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2",
+          "catalog_version": "0.3",
           "req": "MUST"
         },
         "status": {

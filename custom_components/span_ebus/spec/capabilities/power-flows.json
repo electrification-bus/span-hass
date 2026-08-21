@@ -3,33 +3,33 @@
   "schema_version": "property-schema-v1",
   "kind": "capability-catalog",
   "capability": "energy.ebus.capability.power-flows",
-  "version": "0.1",
+  "version": "0.3",
   "status": "DRAFT",
-  "date": "2026-07-11",
+  "date": "2026-08-20",
   "properties": {
     "grid": {
       "datatype": "float",
       "unit": "W",
       "req": "SHOULD",
-      "description": "Grid power flow (positive = importing from grid)."
+      "description": "Grid power flow (positive = exporting to the grid)."
     },
     "battery": {
       "datatype": "float",
       "unit": "W",
       "req": "SHOULD",
-      "description": "Battery power flow (positive = discharging)."
+      "description": "Battery power flow (positive = charging)."
     },
     "pv": {
       "datatype": "float",
       "unit": "W",
       "req": "SHOULD",
-      "description": "Solar PV power flow (positive = producing)."
+      "description": "Solar PV power flow (negative while producing)."
     },
     "site": {
       "datatype": "float",
       "unit": "W",
       "req": "SHOULD",
-      "description": "Total site power consumption."
+      "description": "Total site power consumption (positive = consuming)."
     }
   }
 }

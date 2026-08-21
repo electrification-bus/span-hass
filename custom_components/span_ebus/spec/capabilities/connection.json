@@ -3,9 +3,9 @@
   "schema_version": "property-schema-v1",
   "kind": "capability-catalog",
   "capability": "energy.ebus.capability.connection",
-  "version": "0.1",
+  "version": "0.2",
   "status": "DRAFT",
-  "date": "2026-07-05",
+  "date": "2026-08-20",
   "properties": {
     "feeds-device-id": {
       "datatype": "string",

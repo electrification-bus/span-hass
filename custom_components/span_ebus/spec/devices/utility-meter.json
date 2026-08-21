@@ -19,15 +19,15 @@
         },
         "grid": {
           "catalog": "energy.ebus.capability.grid",
-          "catalog_version": "0.1"
+          "catalog_version": "0.2"
         },
         "info": {
           "catalog": "energy.ebus.capability.info",
-          "catalog_version": "0.2"
+          "catalog_version": "0.3"
         },
         "meter": {
           "catalog": "energy.ebus.capability.meter",
-          "catalog_version": "0.2"
+          "catalog_version": "0.4"
         },
         "power-quality": {
           "catalog": "energy.ebus.capability.power-quality",
