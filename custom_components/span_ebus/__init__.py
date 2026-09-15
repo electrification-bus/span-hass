@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable, Mapping
 import contextlib
 from functools import partial
+import importlib
 import logging
 from typing import Any
 
@@ -37,6 +38,7 @@ from .util import (
     DEVICE_TYPE_LABELS,
     descendant_device_info,
     panel_device_info,
+    parent_identifier,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -69,9 +71,20 @@ def _build_mqtt_cfg(data: Mapping[str, Any]) -> dict[str, Any]:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up SPAN Panel (eBus) from a config entry."""
-    # Import here so the config flow can be discovered before ebus-sdk is installed.
-    from .node_mappers import entities_from_tree  # noqa: PLC0415
-    from .span_panel import SpanPanel  # noqa: PLC0415
+    # Deferred so the config flow stays importable before ebus-sdk is installed:
+    # the requirement is only pulled in at setup, but the flow must be
+    # discoverable before that. Routed through the import executor because
+    # importing the SDK opens files, and this coroutine runs on the event loop.
+    span_panel_mod, node_mappers_mod = await asyncio.gather(
+        hass.async_add_import_executor_job(
+            importlib.import_module, ".span_panel", __package__
+        ),
+        hass.async_add_import_executor_job(
+            importlib.import_module, ".node_mappers", __package__
+        ),
+    )
+    SpanPanel = span_panel_mod.SpanPanel  # noqa: N806
+    entities_from_tree = node_mappers_mod.entities_from_tree
 
     serial_number = entry.data[CONF_SERIAL_NUMBER]
 
@@ -187,8 +200,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "Circuit %s name updated to '%s'; refreshing device registry", cid, value
             )
             dev_reg = dr.async_get(hass)
-            existing = dev_reg.async_get_device(
-                identifiers={(DOMAIN, f"{panel.serial_number}_{cid}")}
+            existing = dev_reg.async_get_device_by_identifier(
+                (DOMAIN, f"{panel.serial_number}_{cid}"), entry.entry_id
             )
             if existing is None:
                 # Brand-new circuit (e.g. user added a breaker mid-session).
@@ -423,8 +436,8 @@ class _DeferredDeviceRetirement:
             )
             return
         dev_reg = dr.async_get(self._hass)
-        ha_device = dev_reg.async_get_device(
-            identifiers={(DOMAIN, f"{self._panel.serial_number}_{device_id}")}
+        ha_device = dev_reg.async_get_device_by_identifier(
+            (DOMAIN, f"{self._panel.serial_number}_{device_id}"), self._entry_id
         )
         if ha_device is None:
             return
@@ -774,15 +787,19 @@ def _register_panel_and_descendants(
         panel.get_property_value(serial_number, "info", "software-version") or ""
     )
     upstream = _resolve_upstream_panel(panel)
-    panel_info = panel_device_info(
-        serial_number, firmware, upstream_panel_serial=upstream
-    )
+    panel_info = panel_device_info(serial_number, firmware)
     panel_device = device_registry.async_get_or_create(
         config_entry_id=config_entry_id, **panel_info
     )
-    _refresh_name_and_via_device(
-        device_registry, panel_device, panel_info, upstream_serial=upstream
-    )
+    _refresh_name(device_registry, panel_device, panel_info)
+
+    # Pass one creates every device flat. Parent links are deliberately not set
+    # here: ``via_device_id`` is a registry id, so the parent row has to exist
+    # before a child can point at it, and the spec order gives no guarantee a
+    # parent is reached first (a MID hangs off its BESS, not off the panel).
+    links: list[tuple[dr.DeviceEntry, tuple[str, str]]] = []
+    if upstream:
+        links.append((panel_device, (DOMAIN, upstream)))
 
     seen: set[str] = set()
     for spec in entity_specs:
@@ -794,39 +811,71 @@ def _register_panel_and_descendants(
             device_id=spec.device_id,
             device_type=spec.device_type,
             device_name=spec.device_name,
-            parent_device_id=spec.via_device_id,
         )
         device = device_registry.async_get_or_create(
             config_entry_id=config_entry_id, **info
         )
-        _refresh_name_and_via_device(device_registry, device, info)
+        _refresh_name(device_registry, device, info)
+        links.append((device, parent_identifier(serial_number, spec.via_device_id)))
+
+    # Pass two links them, now that every row exists.
+    _link_parents(device_registry, config_entry_id, links)
 
 
-def _refresh_name_and_via_device(
+@callback
+def _link_parents(
+    device_registry: dr.DeviceRegistry,
+    config_entry_id: str,
+    links: list[tuple[dr.DeviceEntry, tuple[str, str]]],
+) -> None:
+    """Point each device at its parent's registry id, skipping ones already correct.
+
+    A parent that is not registered yet (an upstream sister panel whose own
+    config entry has not set up) simply leaves the link unset; the next tree
+    walk retries it.
+    """
+    for device, parent_ident in links:
+        parent = _find_device(device_registry, config_entry_id, parent_ident)
+        if parent is None or parent.id == device.id:
+            continue
+        if device.via_device_id != parent.id:
+            device_registry.async_update_device(device.id, via_device_id=parent.id)
+
+
+@callback
+def _find_device(
+    device_registry: dr.DeviceRegistry,
+    config_entry_id: str,
+    identifier: tuple[str, str],
+) -> dr.DeviceEntry | None:
+    """Resolve an identifier to a device row, preferring our own config entry.
+
+    Descendants live in this entry, but a cascade's upstream panel is a
+    separate config entry entirely, so the lookup cannot be entry-scoped.
+    Identifiers are only guaranteed unique *within* an entry (which is why
+    ``async_get_device`` was deprecated), so a cross-entry match is accepted
+    only when it is unambiguous.
+    """
+    own = device_registry.async_get_device_by_identifier(identifier, config_entry_id)
+    if own is not None:
+        return own
+    matches = device_registry.async_get_devices(identifiers={identifier})
+    return matches[0] if len(matches) == 1 else None
+
+
+@callback
+def _refresh_name(
     device_registry: dr.DeviceRegistry,
     device: dr.DeviceEntry,
     info: Any,
-    upstream_serial: str | None = None,
 ) -> None:
-    """Update a device's name and via_device link when our defaults change.
+    """Update a device's name when our default changes between releases.
 
-    Preserves user-customized names (``name_by_user`` set). The via_device
-    update only applies when ``upstream_serial`` is supplied (panel-root
-    only); descendant via_device is set at creation time and rarely changes.
+    Preserves a user-customized name (``name_by_user`` set).
     """
-    updates: dict[str, Any] = {}
     desired_name = info.get("name")
     if desired_name and device.name != desired_name and not device.name_by_user:
-        updates["name"] = desired_name
-    if upstream_serial is not None:
-        upstream_device = device_registry.async_get_device(
-            identifiers={(DOMAIN, upstream_serial)}
-        )
-        upstream_device_id = upstream_device.id if upstream_device else None
-        if upstream_device_id != device.via_device_id:
-            updates["via_device_id"] = upstream_device_id
-    if updates:
-        device_registry.async_update_device(device.id, **updates)
+        device_registry.async_update_device(device.id, name=desired_name)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

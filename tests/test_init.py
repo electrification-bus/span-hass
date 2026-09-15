@@ -195,7 +195,7 @@ def _retirement_setup(monkeypatch, present: list[str]):
     device = MagicMock()
     device.id = "ha-device-id"
     dev_reg = MagicMock()
-    dev_reg.async_get_device.return_value = device
+    dev_reg.async_get_device_by_identifier.return_value = device
     monkeypatch.setattr(span_ebus.dr, "async_get", lambda _hass: dev_reg)
 
     panel = _retirement_panel("nt-0000-test1", present)
@@ -532,3 +532,107 @@ def test_description_arrival_dispatches_a_tree_walk() -> None:
     panel._on_description_received(device)
 
     assert panel._dispatch_tree_state in scheduled
+
+
+# ── Device hierarchy (via_device_id) ──────────────────────────────────────
+
+
+def test_parent_identifier_points_descendants_at_the_right_row() -> None:
+    """A MID hangs off its BESS; everything else hangs off the panel."""
+    from custom_components.span_ebus.util import parent_identifier
+
+    panel = "nt-0000-test1"
+    assert parent_identifier(panel, None) == (span_ebus.DOMAIN, panel)
+    assert parent_identifier(panel, panel) == (span_ebus.DOMAIN, panel)
+    assert parent_identifier(panel, "bess-1") == (
+        span_ebus.DOMAIN,
+        f"{panel}_bess-1",
+    )
+
+
+def _dev(dev_id: str, via: str | None = None) -> MagicMock:
+    d = MagicMock()
+    d.id = dev_id
+    d.via_device_id = via
+    return d
+
+
+def test_link_parents_sets_via_device_id() -> None:
+    """Hierarchy is a property of the device row now, not of DeviceInfo."""
+    child, parent = _dev("child-row"), _dev("parent-row")
+    reg = MagicMock()
+    reg.async_get_device_by_identifier.return_value = parent
+
+    span_ebus._link_parents(reg, "entry-1", [(child, (span_ebus.DOMAIN, "p"))])
+
+    reg.async_update_device.assert_called_once_with(
+        "child-row", via_device_id="parent-row"
+    )
+
+
+def test_link_parents_is_idempotent() -> None:
+    """The tree walk re-runs constantly; an unchanged link must not be rewritten."""
+    child, parent = _dev("child-row", via="parent-row"), _dev("parent-row")
+    reg = MagicMock()
+    reg.async_get_device_by_identifier.return_value = parent
+
+    span_ebus._link_parents(reg, "entry-1", [(child, (span_ebus.DOMAIN, "p"))])
+
+    reg.async_update_device.assert_not_called()
+
+
+def test_link_parents_skips_a_parent_that_is_not_registered_yet() -> None:
+    """An upstream sister panel whose own config entry has not set up yet."""
+    child = _dev("child-row")
+    reg = MagicMock()
+    reg.async_get_device_by_identifier.return_value = None
+    reg.async_get_devices.return_value = []
+
+    span_ebus._link_parents(reg, "entry-1", [(child, (span_ebus.DOMAIN, "p"))])
+
+    reg.async_update_device.assert_not_called()
+
+
+def test_find_device_falls_back_across_config_entries() -> None:
+    """A cascade's upstream panel is a different config entry.
+
+    ``async_get_device_by_identifier`` only searches the entry it is given, so
+    the panel-to-panel link has to fall back to the cross-entry lookup.
+    """
+    sister = _dev("sister-row")
+    reg = MagicMock()
+    reg.async_get_device_by_identifier.return_value = None
+    reg.async_get_devices.return_value = [sister]
+
+    found = span_ebus._find_device(reg, "entry-1", (span_ebus.DOMAIN, "nt-other"))
+    assert found is sister
+
+
+def test_find_device_refuses_an_ambiguous_cross_entry_match() -> None:
+    """Identifiers are only unique within an entry, which is why the old API went away."""
+    reg = MagicMock()
+    reg.async_get_device_by_identifier.return_value = None
+    reg.async_get_devices.return_value = [_dev("a"), _dev("b")]
+
+    assert span_ebus._find_device(reg, "entry-1", (span_ebus.DOMAIN, "x")) is None
+
+
+def test_device_info_builders_carry_no_parent_link() -> None:
+    """HA 2026.9 removed via_device from DeviceInfo; leaving it in would raise."""
+    from custom_components.span_ebus.util import (
+        descendant_device_info,
+        panel_device_info,
+    )
+
+    panel = panel_device_info("nt-0000-test1", "fw-1")
+    child = descendant_device_info(
+        panel_serial="nt-0000-test1",
+        device_id="circ-1",
+        device_type="circuit",
+        device_name="Kitchen",
+    )
+    for info in (panel, child):
+        assert "via_device" not in info
+        assert "via_device_id" not in info
+    assert panel["identifiers"] == {(span_ebus.DOMAIN, "nt-0000-test1")}
+    assert child["identifiers"] == {(span_ebus.DOMAIN, "nt-0000-test1_circ-1")}

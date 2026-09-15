@@ -112,7 +112,6 @@ def _device_info_for_spec(panel: SpanPanel, spec: EntitySpec) -> DeviceInfo:
         device_id=spec.device_id,
         device_type=spec.device_type,
         device_name=spec.device_name,
-        parent_device_id=spec.via_device_id or None,
     )
 
 
