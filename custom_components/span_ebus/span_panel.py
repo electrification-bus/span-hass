@@ -127,6 +127,26 @@ class SpanPanel:
         value = device.get_property(capability, property_id)
         return value if value is None else str(value)
 
+    def is_property_declared(
+        self, device_id: str, capability: str, property_id: str
+    ) -> bool:
+        """Whether the device's ``$description`` declares this property.
+
+        Distinguishes "the publisher does not implement this capability" from
+        "it does, but the retained value has not landed yet". A write gate that
+        cannot tell those apart fails open on the second case, which is the
+        dangerous one.
+        """
+        if self._controller is None:
+            return False
+        device = self._controller.devices.get(device_id)
+        if device is None or not device.description:
+            return False
+        node = device.description.get("nodes", {}).get(capability)
+        if not isinstance(node, dict):
+            return False
+        return property_id in node.get("properties", {})
+
     def set_property(
         self, device_id: str, capability: str, property_id: str, value: str
     ) -> bool:
@@ -136,6 +156,17 @@ class SpanPanel:
         return bool(
             self._controller.set_property(device_id, capability, property_id, value)
         )
+
+    @callback
+    def refresh_availability(self) -> None:
+        """Re-evaluate and push effective availability for every tracked device.
+
+        The SDK's drop paths (an empty retained ``$state``, or a parent's
+        ``$description.children`` shrinking) do not go through a ``$state``
+        transition, so nothing would otherwise tell a dropped descendant's
+        entities that they are no longer live.
+        """
+        self._dispatch_availability_for_all()
 
     def register_property_callback(
         self,
@@ -263,10 +294,22 @@ class SpanPanel:
             self.hass.loop.call_soon_threadsafe(self._dispatch_tree_state)
 
     def _on_description_received(self, device: DiscoveredDevice) -> None:
-        """Handle a device's $description message (paho-mqtt thread)."""
+        """Handle a device's $description message (paho-mqtt thread).
+
+        The description is dispatched as a tree-state change, not just the
+        root's setup event. The SDK subscribes to ``$state`` before
+        ``$description`` and paho delivers in subscription order, so a
+        descendant is routinely seen ``ready`` while its description is still
+        absent; the entity structure comes entirely from that description, so a
+        tree walk that runs in between produces no specs for it. Firing here
+        guarantees a walk after the description lands. The walk is idempotent
+        (device registration goes through ``async_get_or_create`` and entity
+        adds are deduplicated by ``unique_id``), so the extra passes are cheap.
+        """
         _LOGGER.debug("Description received for %s", device.device_id)
         if device.device_id == self.serial_number:
             self.hass.loop.call_soon_threadsafe(self.description_received.set)
+        self.hass.loop.call_soon_threadsafe(self._dispatch_tree_state)
 
     def _on_property_changed(
         self,

@@ -29,18 +29,14 @@ DEVICE_TYPE_LABELS = {
 }
 
 
-def panel_device_info(
-    serial_number: str,
-    firmware_version: str = "",
-    upstream_panel_serial: str | None = None,
-) -> DeviceInfo:
+def panel_device_info(serial_number: str, firmware_version: str = "") -> DeviceInfo:
     """Build a DeviceInfo for the panel-root HA device.
 
-    When ``upstream_panel_serial`` is provided, the panel is linked under that
-    upstream panel via ``via_device``, producing the cascade hierarchy that's
-    visible in Settings → Devices. The upstream serial is derived from the
-    publisher's ``lugs-up/connection/fed-by-device-id`` triplet at integration
-    setup (see ``__init__._resolve_upstream_panel``).
+    Carries no parent link. Home Assistant removed ``via_device`` from
+    ``DeviceInfo`` in 2026.9 in favor of ``via_device_id``, which is a device
+    registry id rather than an identifier tuple and so cannot be known by a
+    pure builder. The cascade hierarchy is therefore set on the device row
+    itself, by ``__init__._link_parents`` after every device exists.
     """
     info = DeviceInfo(
         identifiers={(DOMAIN, serial_number)},
@@ -50,8 +46,6 @@ def panel_device_info(
     )
     if firmware_version:
         info["sw_version"] = firmware_version
-    if upstream_panel_serial:
-        info["via_device"] = (DOMAIN, upstream_panel_serial)
     return info
 
 
@@ -60,29 +54,37 @@ def descendant_device_info(
     device_id: str,
     device_type: str,
     device_name: str,
-    parent_device_id: str | None = None,
     manufacturer: str | None = None,
 ) -> DeviceInfo:
     """Build a DeviceInfo for a non-root descendant device.
 
-    Hierarchy: the descendant is linked via ``via_device`` to its Homie
-    ``$parent``. When the parent is the panel root, ``parent_device_id`` is
-    typically the panel serial; for a MID grandchild it's the parent BESS's
-    device-id.
+    Carries no parent link, for the reason given on ``panel_device_info``; the
+    descendant's place under its Homie ``$parent`` is established by
+    ``__init__._link_parents``, which resolves ``parent_identifier`` to a
+    registry id once every device exists.
 
     Identifiers always include the panel serial as a prefix to keep IDs
     globally unique across multi-panel installs (matches the unique_id format).
     """
-    info = DeviceInfo(
+    return DeviceInfo(
         identifiers={(DOMAIN, f"{panel_serial}_{device_id}")},
         name=device_name,
         manufacturer=manufacturer or "SPAN",
         model=DEVICE_TYPE_LABELS.get(device_type, "Unknown"),
-        via_device=(DOMAIN, f"{panel_serial}_{parent_device_id}")
-        if parent_device_id and parent_device_id != panel_serial
-        else (DOMAIN, panel_serial),
     )
-    return info
+
+
+def parent_identifier(
+    panel_serial: str, parent_device_id: str | None
+) -> tuple[str, str]:
+    """Return the identifier of the device a descendant hangs under.
+
+    A descendant whose Homie ``$parent`` is the panel root (or which names no
+    parent) hangs directly off the panel; a MID grandchild hangs off its BESS.
+    """
+    if parent_device_id and parent_device_id != panel_serial:
+        return (DOMAIN, f"{panel_serial}_{parent_device_id}")
+    return (DOMAIN, panel_serial)
 
 
 def make_unique_id(

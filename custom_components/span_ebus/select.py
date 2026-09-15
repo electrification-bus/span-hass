@@ -11,8 +11,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
-from .entity_base import SpanEbusEntity
+from .entity_base import SpanEbusEntity, async_setup_platform_entities
 from .node_mappers import EntitySpec
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,17 +23,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up SPAN select entities from a config entry."""
-    panel = hass.data[DOMAIN][entry.entry_id]["panel"]
-    entity_specs: list[EntitySpec] = hass.data[DOMAIN][entry.entry_id]["entity_specs"]
-
-    entities = [
-        SpanEbusSelect(panel, spec)
-        for spec in entity_specs
-        if spec.platform == Platform.SELECT
-    ]
-    if entities:
-        async_add_entities(entities)
-        _LOGGER.debug("Added %d select entities for %s", len(entities), panel.serial_number)
+    async_setup_platform_entities(
+        hass, entry, Platform.SELECT, async_add_entities, SpanEbusSelect
+    )
 
 
 class SpanEbusSelect(SpanEbusEntity, SelectEntity):

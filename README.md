@@ -8,14 +8,14 @@ A custom [Home Assistant](https://www.home-assistant.io/) integration for [SPAN]
 
 `span_ebus` uses **local push** over MQTT — the panel streams real-time updates directly to Home Assistant with no cloud dependency and no polling interval. Every circuit power change, relay toggle, and energy accumulation arrives instantly via the panel's built-in MQTT broker.
 
-> **Active alpha.** The author runs this integration against three SPAN panels in a daisy-chain cascade in their own home. v0.3.0 (2026-08-02) tracks the current SPAN ebus-panel-adapter wire (the parent/child Homie 5 data model); the entity structure is generated from the panel's live `$description` rather than hard-coded, so it follows the adapter as it evolves. If you adopt it you're an early user. Please report any issues on the [GitHub issue tracker](https://github.com/electrification-bus/span-hass/issues).
+> **Active alpha.** The author runs this integration against three SPAN panels in a daisy-chain cascade in their own home. v0.4.0 (2026-09-15) tracks the current SPAN ebus-panel-adapter wire (the parent/child Homie 5 data model), verified against released firmware `spanos3/r202633/02`; the entity structure is generated from the panel's live `$description` rather than hard-coded, so it follows the adapter as it evolves. If you adopt it you're an early user. Please report any issues on the [GitHub issue tracker](https://github.com/electrification-bus/span-hass/issues).
 
 ## Choosing a SPAN integration
 
 Two community Home Assistant integrations exist for SPAN panels:
 
 - **[SpanPanel/span](https://github.com/SpanPanel/span)** — the established and most widely-adopted SPAN integration. Available in HACS, broad community support, several years of production use across many homes. **This is the right choice for most users.**
-- **`electrification-bus/span-hass`** (this integration) — **experimental**. Uses the SPAN local eBus MQTT API (the Homie 5 parent/child tree publication documented at [SPAN-API-Client-Docs](https://github.com/spanio/SPAN-API-Client-Docs)). Requires SPAN firmware r202633 or later, which has not yet shipped as a public SPAN release.
+- **`electrification-bus/span-hass`** (this integration) — **experimental**. Uses the SPAN local eBus MQTT API (the Homie 5 parent/child tree publication documented at [SPAN-API-Client-Docs](https://github.com/spanio/SPAN-API-Client-Docs)). Requires SPAN firmware r202633 or later.
 
 ## Features
 
@@ -35,7 +35,7 @@ Two community Home Assistant integrations exist for SPAN panels:
 ## Requirements
 
 - SPAN Panel **MAIN 32**, running firmware **r202633 or later**: the release that publishes the parent/child Homie 5 tree data model. The entity structure is read from the panel's live `$description`, so the integration follows the adapter's published schema. Firmware older than r202633 publishes a flat data model this integration does not read.
-- Home Assistant 2026.2 or later
+- Home Assistant 2026.8 or later (the floor `hacs.json` declares, and what CI tests against)
 - The panel must be reachable on the local network
 
 ## Installation
@@ -106,9 +106,8 @@ In the tree data model each Homie device becomes its own HA device under the pan
 | Wi-Fi SSID / Postal Code / Time Zone | Sensor | Location + network metadata (diagnostic) |
 | Cloud Connection | Sensor | Vendor cloud reachability state (diagnostic) |
 | L1 / L2 Voltage | Sensor | Line voltages (V) |
-| PV Power / Battery Power / Grid Power / Site Power | Sensor | Panel-level directional power totals (W) — the four flows the Energy Dashboard "Now" Sankey reads |
+| PV Power / Battery Power / Grid Power / Site Power | Sensor | Site-level directional power totals (W) from the panel's `power-flows` capability. Instantaneous only, with no cumulative counter, so these are dashboard readouts rather than Energy Dashboard sources. In a daisy-chain cascade every enclosure republishes the same site-level aggregate, so read them from one panel only. PV Power and Grid Power are re-signed into the same frame as the rest of the integration (generation positive, grid import positive); Site Power and Battery Power are published as the panel reports them. See [Power Sign Convention](#power-sign-convention). |
 | PCS Enabled / PCS Active | Binary Sensor | Power Control System master flags (diagnostic) |
-| Grid Islandable | Binary Sensor | Whether the panel is wired to island (diagnostic) |
 | Main Breaker Rating | Sensor | Main breaker amperage (A, diagnostic) |
 | Import Limit / Feed Import Limit / Grid Import Limit / Off Grid Import Limit / Requested Import Limit | Sensor | Current-limit ceilings (A, measurement) |
 | (Limit)-Enablement | Sensor | Enum: UNSPECIFIED / UNCONFIGURED / DISABLED / ENABLED (diagnostic) |
@@ -116,8 +115,8 @@ In the tree data model each Homie device becomes its own HA device under the pan
 | Battery Time Remaining / Time to Priority Shed | Sensor | BTR forecast in minutes — how long the panel can sustain its current load (presence-gated on ≥1 BESS commissioned) |
 | Battery Time Remaining at Full Charge / Time to Priority Shed at Full Charge | Sensor | Same forecast assuming the BESS were at 100% SOC right now |
 | Shed Forecast Confidence | Sensor | Enum LOW / MEDIUM / HIGH for the BTR forecast (diagnostic) |
-| Shed Override | Switch | Force shed-priority shedding (settable; publisher silently ignores out-of-condition writes per spec — only accepted when off-grid + BESS comms degraded) |
-| Shed SOC Threshold | Sensor | The SOC% at which priority shedding triggers (diagnostic) |
+| Asserted Islanding State | Select | The islanding state the panel is being asked to assert (NONE / ON_GRID / OFF_GRID). The only settable control on the enclosure device. |
+| Shed Policy | Sensor | The panel's load-shed policy document, read-only (diagnostic) |
 
 ### Upstream / Downstream Lugs Devices
 
@@ -149,9 +148,9 @@ For each circuit on your SPAN Panel:
 | Power | Sensor | Real-time active power (W). Positive = consumption, negative = generation (backfeed from a PV-feeding circuit). |
 | Energy | Sensor | Cumulative energy consumed (Wh, `total_increasing`). The dominant counter for load circuits. |
 | Energy Returned | Sensor | Cumulative energy returned/backfed (Wh, `total_increasing`). Near zero except on PV-feeding circuits. |
-| Relay | Switch | Circuit breaker relay (on = closed, off = open). Gated `$settable` per spec — non-settable on circuits commissioned as locked-on or locked-off. |
+| Relay | Switch | Circuit breaker relay (on = closed, off = open). Writes are gated on the circuit's own `switch/relay-controllable`, falling back to the relay's `$settable` from the device `$description` only when the panel does not publish that capability at all. A circuit the panel has commissioned as locked (permanently on, or permanently off) still reports its relay state, but a turn-on or turn-off is refused with an error rather than putting a command on the wire. The gate is re-read live, so re-commissioning a circuit takes effect without reloading the integration. |
 | Relay Requester | Sensor | Enum showing who last commanded the relay (USER / LOAD_SHED / PCS / CONFIGURATION / FAULT / NONE / UNKNOWN, diagnostic) |
-| Shed Priority | Select | Load-shedding priority (UNKNOWN / OFF_GRID / SOC_THRESHOLD / NEVER). Gated `$settable` — non-settable when commissioned as permanent OFF_GRID. |
+| Shed Priority | Select | Load-shedding priority (UNKNOWN / OFF_GRID / SOC_THRESHOLD / NEVER). Settable on every circuit the panels publish today. |
 | PCS Managed / PCS Priority | Binary Sensor / Sensor | Whether the PCS is managing this circuit + its priority (diagnostic) |
 | Relay Controllable | Binary Sensor | Whether the relay can be commanded (diagnostic) |
 | Feeds Device / Feeds Device Type / Feeds Connection Problem / Feeds Count | Sensor / Binary Sensor | Connection capability — populated when the circuit is commissioned as feeding a specific DER (PV, IN_PANEL BESS, EVSE) |
@@ -229,8 +228,24 @@ This integration maps these to user-friendly entity names:
 
 Circuit `active-power` is **negated** by the integration so that positive values represent consumption. This matches Home Assistant's convention for `device_consumption` stat_rate in the Energy Dashboard "Now" (power Sankey) tab.
 
-Raw SPAN values: negative = consumption, positive = generation (backfeed from PV).
-After negation: positive = consumption, negative = generation.
+Raw SPAN values: negative = consumption, positive = generation (backfeed from PV). After negation: positive = consumption, negative = generation. The one exception is a circuit that feeds a PV system: SPAN already reports those generation-positive, so the flip is suppressed at runtime once the circuit's `connection/feeds-device-type` resolves to a PV device.
+
+Most SPAN properties report from the **panel's perspective**: positive means power flowing into the panel across that boundary. The panel's `power-flows` capability is the documented exception. It is a derived, source-centric summary in which each value describes what the named entity is doing, so its signs run opposite to every `meter` capability: SPAN publishes `grid` positive while exporting to the utility, `pv` negative while generating, `battery` positive while charging, and `site` positive while consuming.
+
+This integration re-signs two of those four so that every power entity it creates sits in one frame:
+
+| Property | SPAN publishes | This integration reports |
+|----------|----------------|--------------------------|
+| `power-flows/pv` | negative while generating | **negated**: positive while generating |
+| `power-flows/grid` | positive while exporting | **negated**: positive while importing, agreeing with the upstream lugs `Power` sensor |
+| `power-flows/site` | positive while consuming | unchanged |
+| `power-flows/battery` | positive while charging | unchanged (see below) |
+
+`power-flows/battery` is left as the panel publishes it. SPAN documents that sign as the opposite of the eBus specification and states that it may be corrected in a future firmware release, so re-signing it now would invert it a second time the day the publisher changes. The BESS device's own `meter/active-power` carries the same value and the same sign.
+
+The downstream (feedthrough) lugs are a second documented deviation: `<panel>-lugs-dn` reports `active-power` positive while the panel is *delivering* power out to a sub-panel, where the panel-perspective rule would make that negative. This integration publishes both lugs boundaries unmodified, because for a per-device sensor the raw sign is the readable one (positive means power heading toward the load at either boundary). The deviation matters when summing terminals to close a power balance, which this integration does not do.
+
+SPAN's own reference for all of this is [Power and Energy Sign Conventions](https://github.com/spanio/SPAN-API-Client-Docs/blob/main/docs/public/power-and-energy-conventions.md).
 
 ### Energy Dashboard Configuration
 
@@ -341,9 +356,9 @@ Either way, **Energy Dashboard configuration must be rebuilt** — the unique-ID
 
 ```bash
 poetry install
-poetry run pytest tests/ -v             # 47 tests
+poetry run pytest tests/ -q
 poetry run mypy custom_components/span_ebus/
-poetry run ruff check custom_components/span_ebus/
+poetry run ruff check custom_components/span_ebus/ tests/
 ```
 
 ### Dependencies

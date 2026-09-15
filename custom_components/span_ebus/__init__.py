@@ -5,13 +5,16 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 import contextlib
+from functools import partial
+import importlib
 import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.event import async_call_later
 
 from .const import (
     CIRCUIT_NAMES_TIMEOUT,
@@ -24,6 +27,7 @@ from .const import (
     CONF_SERIAL_NUMBER,
     DESCRIPTION_TIMEOUT,
     DEVICE_READY_TIMEOUT,
+    DEVICE_REMOVAL_GRACE,
     DEVICE_TYPE_CIRCUIT,
     DEVICE_TYPE_LUGS,
     DOMAIN,
@@ -34,6 +38,7 @@ from .util import (
     DEVICE_TYPE_LABELS,
     descendant_device_info,
     panel_device_info,
+    parent_identifier,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,9 +71,20 @@ def _build_mqtt_cfg(data: Mapping[str, Any]) -> dict[str, Any]:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up SPAN Panel (eBus) from a config entry."""
-    # Import here so the config flow can be discovered before ebus-sdk is installed.
-    from .node_mappers import entities_from_tree  # noqa: PLC0415
-    from .span_panel import SpanPanel  # noqa: PLC0415
+    # Deferred so the config flow stays importable before ebus-sdk is installed:
+    # the requirement is only pulled in at setup, but the flow must be
+    # discoverable before that. Routed through the import executor because
+    # importing the SDK opens files, and this coroutine runs on the event loop.
+    span_panel_mod, node_mappers_mod = await asyncio.gather(
+        hass.async_add_import_executor_job(
+            importlib.import_module, ".span_panel", __package__
+        ),
+        hass.async_add_import_executor_job(
+            importlib.import_module, ".node_mappers", __package__
+        ),
+    )
+    SpanPanel = span_panel_mod.SpanPanel  # noqa: N806
+    entities_from_tree = node_mappers_mod.entities_from_tree
 
     serial_number = entry.data[CONF_SERIAL_NUMBER]
 
@@ -184,8 +200,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "Circuit %s name updated to '%s'; refreshing device registry", cid, value
             )
             dev_reg = dr.async_get(hass)
-            existing = dev_reg.async_get_device(
-                identifiers={(DOMAIN, f"{panel.serial_number}_{cid}")}
+            existing = dev_reg.async_get_device_by_identifier(
+                (DOMAIN, f"{panel.serial_number}_{cid}"), entry.entry_id
             )
             if existing is None:
                 # Brand-new circuit (e.g. user added a breaker mid-session).
@@ -209,6 +225,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         )
 
+    retirement = _DeferredDeviceRetirement(hass, panel, entry.entry_id)
+
+    # Circuits whose entities are held back until ``info/name`` lands, mapped to
+    # the cleanups for their name callback and timeout backstop. Home Assistant
+    # freezes ``entity_id`` at creation, so a circuit whose entities are built
+    # while its name is still in flight is stuck on the ``Circuit <hex>``
+    # fallback permanently. Setup avoids that with ``_wait_for_circuit_names``;
+    # these two structures are the post-setup equivalent.
+    named_deferrals: dict[str, list[Callable[[], None]]] = {}
+    named_released: set[str] = set()
+
+    @callback
+    def _release_named(device_id: str, *_args: Any) -> None:
+        """Stop holding a circuit's entities and re-run the walk."""
+        for cleanup in named_deferrals.pop(device_id, []):
+            cleanup()
+        named_released.add(device_id)
+        _on_tree_state()
+
+    @callback
+    def _defer_until_named(device_id: str) -> None:
+        """Hold a newly seen circuit's entities until its name arrives.
+
+        Released either by ``info/name`` arriving or by a
+        ``CIRCUIT_NAMES_TIMEOUT`` backstop, so a circuit that never publishes a
+        name still gets entities (on the fallback id, which is the best
+        available answer at that point).
+        """
+        if device_id in named_deferrals:
+            return
+        named_deferrals[device_id] = [
+            async_call_later(
+                hass, CIRCUIT_NAMES_TIMEOUT, partial(_release_named, device_id)
+            ),
+            panel.register_property_callback(
+                device_id, "info", "name", partial(_release_named, device_id)
+            ),
+        ]
+
+    @callback
     def _on_tree_state() -> None:
         """Re-walk the tree on any descendant's init→ready edge.
 
@@ -220,9 +276,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         drives the panel's via_device link). All registration is idempotent
         via ``async_get_or_create``, so reruns on already-known devices are
         essentially free.
+
+        The walk also feeds the platforms: any spec the previous walk didn't
+        produce becomes an entity now, so a re-announced or newly commissioned
+        descendant comes back without a config-entry reload.
         """
         if panel.controller is None:
             return
+
+        # A descendant that came back inside its grace period is not gone.
+        retirement.cancel_for_present(panel.controller.devices)
+
         refreshed_snapshot = _controller_devices_to_snapshot(panel.controller.devices)
         refreshed_specs = entities_from_tree(refreshed_snapshot)
         _stamp_device_presentation(panel, panel.controller, refreshed_specs)
@@ -230,32 +294,208 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             dr.async_get(hass), entry.entry_id, panel, panel.controller, refreshed_specs
         )
 
+        held = {
+            spec.device_id
+            for spec in refreshed_specs
+            if spec.device_type == DEVICE_TYPE_CIRCUIT
+            and spec.device_id not in named_released
+            and panel.get_property_value(spec.device_id, "info", "name") is None
+        }
+        for device_id in held:
+            _defer_until_named(device_id)
+        addable = (
+            refreshed_specs
+            if not held
+            else [s for s in refreshed_specs if s.device_id not in held]
+        )
+        _async_add_new_entities(hass, entry, refreshed_specs, addable)
+
     unregister_callbacks.append(panel.register_tree_state_callback(_on_tree_state))
 
-    def _on_device_removed(device_id: str) -> None:
-        _LOGGER.info(
-            "SPAN Panel %s: descendant %s dropped; removing from HA device registry",
-            serial_number,
-            device_id,
-        )
-        dev_reg = dr.async_get(hass)
-        ha_device = dev_reg.async_get_device(
-            identifiers={(DOMAIN, f"{panel.serial_number}_{device_id}")}
-        )
-        if ha_device is not None:
-            dev_reg.async_remove_device(ha_device.id)
+    unregister_callbacks.append(
+        panel.register_device_removed_callback(retirement.schedule)
+    )
+    unregister_callbacks.append(retirement.cancel_all)
 
-    unregister_callbacks.append(panel.register_device_removed_callback(_on_device_removed))
+    @callback
+    def _cancel_named_deferrals() -> None:
+        """Drop any in-flight name waits when the entry unloads."""
+        while named_deferrals:
+            _, cleanups = named_deferrals.popitem()
+            for cleanup in cleanups:
+                cleanup()
+
+    unregister_callbacks.append(_cancel_named_deferrals)
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "panel": panel,
         "entity_specs": entity_specs,
+        # device_id -> the unique_ids already handed to a platform for it, so a
+        # later tree walk adds only what is genuinely new. Keyed by device
+        # rather than a flat set so retirement can drop a device's ids exactly,
+        # without prefix matching: a retired device that is later re-announced
+        # has to be able to create its entities again.
+        "created_by_device": {},
+        # Platform.<X> -> callable taking a spec list and adding the new ones.
+        # Populated by each platform's async_setup_entry.
+        "adders": {},
         "unregister_callbacks": unregister_callbacks,
     }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+class _DeferredDeviceRetirement:
+    """Hold a dropped descendant's HA device until its absence is confirmed.
+
+    ``async_remove_device`` deletes every entity registered on the device, and
+    from the user's side that is not recoverable: entity ids, long-term
+    statistics and any Energy Dashboard rows built on them go with it. A panel
+    drops and re-announces parts of its tree for reasons that have nothing to do
+    with a circuit being decommissioned (a retained ``$state`` clear, a partial
+    ``$description.children`` republish), so one removal signal only means
+    "absent for now". The device is retired only if it is still absent after
+    ``DEVICE_REMOVAL_GRACE``.
+
+    The asymmetry is the whole argument: a device row that outlives its circuit
+    is cosmetic and the user can delete it, while a device removed in error
+    takes history with it.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        panel: Any,
+        entry_id: str = "",
+        grace: float = DEVICE_REMOVAL_GRACE,
+    ) -> None:
+        """Initialize the retirement gate for one panel."""
+        self._hass = hass
+        self._panel = panel
+        self._entry_id = entry_id
+        self._grace = grace
+        self._pending: dict[str, Callable[[], None]] = {}
+
+    @callback
+    def schedule(self, device_id: str) -> None:
+        """Start (or keep) the grace period for a descendant that just dropped."""
+        if device_id in self._pending:
+            return
+        # INFO, not WARNING: a drop that is re-announced inside the grace
+        # period is routine on these panels (observed daily, per panel) and is
+        # fully self-healing. WARNING is reserved for the retirement itself,
+        # which is the step that actually destroys entities.
+        _LOGGER.info(
+            "SPAN Panel %s: descendant %s dropped off the tree; holding its Home "
+            "Assistant device for %s s in case the panel re-announces it",
+            self._panel.serial_number,
+            device_id,
+            self._grace,
+        )
+        self._pending[device_id] = async_call_later(
+            self._hass, self._grace, partial(self._confirm, device_id)
+        )
+        # Keeping the device is not the same as pretending it is still live.
+        # Nothing in the SDK's drop paths goes through a $state transition, so
+        # without this the held entities would keep showing their last value as
+        # though current for the whole grace period.
+        self._panel.refresh_availability()
+
+    @callback
+    def cancel_for_present(self, present_ids: Any) -> None:
+        """Call off retirement for any held descendant that has come back."""
+        for device_id in list(self._pending):
+            if device_id in present_ids:
+                self._pending.pop(device_id)()
+                _LOGGER.info(
+                    "SPAN Panel %s: descendant %s re-announced within the grace "
+                    "period; keeping its device and entities",
+                    self._panel.serial_number,
+                    device_id,
+                )
+
+    @callback
+    def cancel_all(self) -> None:
+        """Drop every in-flight grace timer (the config entry is unloading)."""
+        while self._pending:
+            _, cancel = self._pending.popitem()
+            cancel()
+
+    @callback
+    def _confirm(self, device_id: str, _now: Any = None) -> None:
+        """Grace period elapsed: retire the device unless it came back."""
+        self._pending.pop(device_id, None)
+        controller = self._panel.controller
+        if controller is not None and device_id in controller.devices:
+            _LOGGER.info(
+                "SPAN Panel %s: descendant %s is back; keeping its device",
+                self._panel.serial_number,
+                device_id,
+            )
+            return
+        dev_reg = dr.async_get(self._hass)
+        ha_device = dev_reg.async_get_device_by_identifier(
+            (DOMAIN, f"{self._panel.serial_number}_{device_id}"), self._entry_id
+        )
+        if ha_device is None:
+            return
+        _LOGGER.warning(
+            "SPAN Panel %s: descendant %s absent for %s s; removing its Home "
+            "Assistant device, which also deletes the entities registered on it",
+            self._panel.serial_number,
+            device_id,
+            self._grace,
+        )
+        self._forget_created(device_id)
+        dev_reg.async_remove_device(ha_device.id)
+
+    def _forget_created(self, device_id: str) -> None:
+        """Drop a retired device's unique_ids from the created-entity bookkeeping.
+
+        Home Assistant deletes the entity registry entries along with the
+        device, so leaving the ids behind would make the platform adders skip
+        them forever and a re-announced descendant would get a device row with
+        nothing on it: the same "entities never come back" failure this gate
+        exists to prevent, displaced by the grace period.
+        """
+        data = self._hass.data.get(DOMAIN, {}).get(self._entry_id)
+        if data is not None:
+            data["created_by_device"].pop(device_id, None)
+
+
+@callback
+def _async_add_new_entities(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    specs: list[Any],
+    addable: list[Any] | None = None,
+) -> None:
+    """Hand a refreshed spec list to every platform that has registered.
+
+    Each platform's adder filters to its own specs and skips unique_ids it has
+    already created, so this is a no-op on a tree that has not changed shape.
+    Runs from the tree-state hook, which fires before the platforms finish
+    setting up on the very first pass; the ``adders`` dict is simply empty then
+    and the initial entities come from the platform setup itself.
+    """
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if data is None:
+        return
+    data["entity_specs"] = specs
+    total = 0
+    # ``specs`` is the full walk (what a platform setting up later should see);
+    # ``addable`` is the subset cleared for creation right now.
+    offered = specs if addable is None else addable
+    for adder in list(data["adders"].values()):
+        total += adder(offered)
+    if total:
+        _LOGGER.info(
+            "SPAN Panel %s: tree walk added %d new entities",
+            data["panel"].serial_number,
+            total,
+        )
 
 
 async def _wait_for_tree_discovery(
@@ -411,10 +651,15 @@ def _flatten_properties(props: dict[str, Any] | None) -> dict[str, Any]:
     Without this flattening those lookups silently miss at runtime and fall back
     to defaults (settable gates, lug-direction resolution).
     """
+    # ``list(...)`` throughout: these are the SDK's own live dicts, mutated from
+    # the paho network thread with no lock, and this walk runs on the HA loop.
+    # A concurrent insert would raise "dictionary changed size during iteration"
+    # and abandon the whole walk, which is now the only path by which a
+    # re-announced descendant gets its entities back.
     flat: dict[str, Any] = {}
-    for node_id, node_props in (props or {}).items():
+    for node_id, node_props in list((props or {}).items()):
         if isinstance(node_props, dict):
-            for prop_id, value in node_props.items():
+            for prop_id, value in list(node_props.items()):
                 flat[f"{node_id}/{prop_id}"] = value
         else:
             # Defensive: an already-flat "node/prop" -> scalar entry.
@@ -435,7 +680,7 @@ def _controller_devices_to_snapshot(
     ``{"node/prop": value}`` shape the mappers and fixtures use.
     """
     out: dict[str, dict[str, Any]] = {}
-    for device_id, dev in devices.items():
+    for device_id, dev in list(devices.items()):
         out[device_id] = {
             "description": dev.description or {},
             "properties": _flatten_properties(dev.properties),
@@ -542,15 +787,19 @@ def _register_panel_and_descendants(
         panel.get_property_value(serial_number, "info", "software-version") or ""
     )
     upstream = _resolve_upstream_panel(panel)
-    panel_info = panel_device_info(
-        serial_number, firmware, upstream_panel_serial=upstream
-    )
+    panel_info = panel_device_info(serial_number, firmware)
     panel_device = device_registry.async_get_or_create(
         config_entry_id=config_entry_id, **panel_info
     )
-    _refresh_name_and_via_device(
-        device_registry, panel_device, panel_info, upstream_serial=upstream
-    )
+    _refresh_name(device_registry, panel_device, panel_info)
+
+    # Pass one creates every device flat. Parent links are deliberately not set
+    # here: ``via_device_id`` is a registry id, so the parent row has to exist
+    # before a child can point at it, and the spec order gives no guarantee a
+    # parent is reached first (a MID hangs off its BESS, not off the panel).
+    links: list[tuple[dr.DeviceEntry, tuple[str, str]]] = []
+    if upstream:
+        links.append((panel_device, (DOMAIN, upstream)))
 
     seen: set[str] = set()
     for spec in entity_specs:
@@ -562,39 +811,71 @@ def _register_panel_and_descendants(
             device_id=spec.device_id,
             device_type=spec.device_type,
             device_name=spec.device_name,
-            parent_device_id=spec.via_device_id,
         )
         device = device_registry.async_get_or_create(
             config_entry_id=config_entry_id, **info
         )
-        _refresh_name_and_via_device(device_registry, device, info)
+        _refresh_name(device_registry, device, info)
+        links.append((device, parent_identifier(serial_number, spec.via_device_id)))
+
+    # Pass two links them, now that every row exists.
+    _link_parents(device_registry, config_entry_id, links)
 
 
-def _refresh_name_and_via_device(
+@callback
+def _link_parents(
+    device_registry: dr.DeviceRegistry,
+    config_entry_id: str,
+    links: list[tuple[dr.DeviceEntry, tuple[str, str]]],
+) -> None:
+    """Point each device at its parent's registry id, skipping ones already correct.
+
+    A parent that is not registered yet (an upstream sister panel whose own
+    config entry has not set up) simply leaves the link unset; the next tree
+    walk retries it.
+    """
+    for device, parent_ident in links:
+        parent = _find_device(device_registry, config_entry_id, parent_ident)
+        if parent is None or parent.id == device.id:
+            continue
+        if device.via_device_id != parent.id:
+            device_registry.async_update_device(device.id, via_device_id=parent.id)
+
+
+@callback
+def _find_device(
+    device_registry: dr.DeviceRegistry,
+    config_entry_id: str,
+    identifier: tuple[str, str],
+) -> dr.DeviceEntry | None:
+    """Resolve an identifier to a device row, preferring our own config entry.
+
+    Descendants live in this entry, but a cascade's upstream panel is a
+    separate config entry entirely, so the lookup cannot be entry-scoped.
+    Identifiers are only guaranteed unique *within* an entry (which is why
+    ``async_get_device`` was deprecated), so a cross-entry match is accepted
+    only when it is unambiguous.
+    """
+    own = device_registry.async_get_device_by_identifier(identifier, config_entry_id)
+    if own is not None:
+        return own
+    matches = device_registry.async_get_devices(identifiers={identifier})
+    return matches[0] if len(matches) == 1 else None
+
+
+@callback
+def _refresh_name(
     device_registry: dr.DeviceRegistry,
     device: dr.DeviceEntry,
     info: Any,
-    upstream_serial: str | None = None,
 ) -> None:
-    """Update a device's name and via_device link when our defaults change.
+    """Update a device's name when our default changes between releases.
 
-    Preserves user-customized names (``name_by_user`` set). The via_device
-    update only applies when ``upstream_serial`` is supplied (panel-root
-    only); descendant via_device is set at creation time and rarely changes.
+    Preserves a user-customized name (``name_by_user`` set).
     """
-    updates: dict[str, Any] = {}
     desired_name = info.get("name")
     if desired_name and device.name != desired_name and not device.name_by_user:
-        updates["name"] = desired_name
-    if upstream_serial is not None:
-        upstream_device = device_registry.async_get_device(
-            identifiers={(DOMAIN, upstream_serial)}
-        )
-        upstream_device_id = upstream_device.id if upstream_device else None
-        if upstream_device_id != device.via_device_id:
-            updates["via_device_id"] = upstream_device_id
-    if updates:
-        device_registry.async_update_device(device.id, **updates)
+        device_registry.async_update_device(device.id, name=desired_name)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

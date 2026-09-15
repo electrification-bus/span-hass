@@ -130,9 +130,39 @@ SEMANTICS: dict[tuple[str, str, str], Row] = {
     ("distribution-enclosure", "breaker", "rating"): _diag(
         "Main Breaker Rating", device_class=SensorDeviceClass.CURRENT
     ),
-    ("distribution-enclosure", "power-flows", "pv"): _measure("PV Power", SensorDeviceClass.POWER),
+    # ``power-flows`` is a derived, SOURCE-centric summary and is deliberately
+    # inverted relative to every ``meter`` capability, which reports from the
+    # panel's perspective. SPAN documents the frame as: grid positive =
+    # exporting to the utility, pv negative while generating, battery positive
+    # while charging, site positive while consuming ("Power and Energy Sign
+    # Conventions", SPAN-API-Client-Docs r202633). It is a longstanding SPAN
+    # convention that did not change in the parent/child migration.
+    #
+    # Verified on the wire: the four values close the busbar balance exactly
+    # (pv + battery + grid + site == 0 on all three reference panels), and the
+    # panel's own upstream-lugs ``meter/active-power`` reports the same grid
+    # flow with the opposite sign (-151 W against power-flows grid +161 W).
+    #
+    # ``pv`` and ``grid`` are negated here so they land in the frame Home
+    # Assistant and the rest of this integration already use: generation
+    # positive, grid import positive. That makes "Grid Power" agree in sign
+    # with the "Power" sensor on the upstream lugs instead of contradicting it.
+    # ``site`` is already consumption-positive and needs no flip.
+    #
+    # ``battery`` is deliberately left raw. SPAN publishes it positive while
+    # charging, which is the opposite of the eBus specification, and SPAN's own
+    # documentation says the sign "may be corrected in a future release". The
+    # reference panels have never published a non-zero value (all three sit at
+    # 100% state of charge), so there is no observation to verify a flip
+    # against; negating on the strength of prose alone would silently invert
+    # again the day the publisher corrects itself.
+    ("distribution-enclosure", "power-flows", "pv"): _measure(
+        "PV Power", SensorDeviceClass.POWER, negate=True
+    ),
     ("distribution-enclosure", "power-flows", "battery"): _measure("Battery Power", SensorDeviceClass.POWER),
-    ("distribution-enclosure", "power-flows", "grid"): _measure("Grid Power", SensorDeviceClass.POWER),
+    ("distribution-enclosure", "power-flows", "grid"): _measure(
+        "Grid Power", SensorDeviceClass.POWER, negate=True
+    ),
     ("distribution-enclosure", "power-flows", "site"): _measure("Site Power", SensorDeviceClass.POWER),
     ("distribution-enclosure", "shed-forecast", "total-time-remaining"): _measure(
         "Battery Time Remaining", SensorDeviceClass.DURATION
@@ -174,6 +204,19 @@ SEMANTICS: dict[tuple[str, str, str], Row] = {
     ("lugs", "info", "direction"): _diag("Direction"),
     ("lugs", "meter", "current-a"): _measure("L1 Current", SensorDeviceClass.CURRENT),
     ("lugs", "meter", "current-b"): _measure("L2 Current", SensorDeviceClass.CURRENT),
+    # Published raw, on BOTH boundaries, deliberately. SPAN documents the
+    # downstream (feedthrough) lugs as the one ``meter`` context whose sign runs
+    # the other way: ``-lugs-dn`` reports positive ``active-power`` while the
+    # panel is DELIVERING out to the sub-panel, where the panel-perspective rule
+    # would make that negative ("Power and Energy Sign Conventions",
+    # SPAN-API-Client-Docs r202633). Confirmed on the reference cascade: lc1
+    # lugs-dn +2544 W and lc2 lugs-up +2525.8 W describe the same flow with the
+    # same sign. It is left unflipped because for a per-device sensor the raw
+    # sign is the readable one (positive = power heading toward the load at
+    # either boundary), and flipping it would rewrite the sign of already
+    # recorded history. The deviation matters when summing terminals to close a
+    # balance, which this integration does not do. Do not "fix" this without
+    # deciding what to do about the recorded series.
     ("lugs", "meter", "active-power"): _measure("Power", SensorDeviceClass.POWER),
     ("lugs", "meter", "imported-energy"): _total(
         "Imported Energy", SensorDeviceClass.ENERGY, name_upstream="Energy"
