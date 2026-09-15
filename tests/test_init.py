@@ -669,3 +669,22 @@ def test_registry_apis_the_integration_calls_actually_exist() -> None:
     import inspect
 
     assert "via_device_id" in inspect.signature(DeviceRegistry.async_get_or_create).parameters
+
+
+def test_every_integration_module_imports() -> None:
+    """Import all of them, so a floor-only API in any module is exercised.
+
+    The tests reach most modules indirectly, but not all: nothing else here
+    imports ``binary_sensor`` or ``select``, so an API that exists on the
+    development pin and not on the declared minimum could hide there. mypy
+    covers this statically on both CI legs; this covers it at import time.
+    """
+    import importlib
+    from pathlib import Path
+
+    pkg = Path(__file__).resolve().parents[1] / "custom_components" / "span_ebus"
+    modules = sorted(p.stem for p in pkg.glob("*.py") if p.stem != "__init__")
+    assert {"binary_sensor", "select", "sensor", "switch"} <= set(modules)
+    for name in modules:
+        importlib.import_module(f"custom_components.span_ebus.{name}")
+    importlib.import_module("custom_components.span_ebus")

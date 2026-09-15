@@ -48,27 +48,74 @@ jobs:
             "${GITHUB_WORKSPACE}/.ebus-spec.json"
 
   quality:
-    name: Tests, types, lint
+    name: Quality (${{ matrix.ha }} HA)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # "pinned" is the locked set, so the suite exercises the ebus-sdk and
+        # Home Assistant versions a user actually gets rather than a floor
+        # nobody resolves to. "minimum" is whatever hacs.json declares, which
+        # HACS enforces at install time: without this leg a change could rely
+        # on a newer Home Assistant API and break every user on the floor
+        # while every check here stayed green.
+        ha: [pinned, minimum]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      # Runs against the locked dependency set, so the suite exercises the
-      # ebus-sdk version a user actually gets rather than a floor nobody
-      # resolves to. The end-to-end mapping test in tests/test_node_mappers.py
-      # replays a captured live panel tree, which is what catches a regression
-      # that silently stops producing entities for a whole class of device.
-      - name: Install
+
+      - name: Install (locked set)
+        if: matrix.ha == 'pinned'
         run: |
           pipx install poetry
           poetry install --no-interaction
+
+      # Deliberately not Poetry: the lock file pins Home Assistant, and
+      # downgrading inside that environment fights the resolver. Every version
+      # here is derived from a file rather than typed in, so this leg cannot
+      # drift from what a HACS user actually installs: the Home Assistant floor
+      # comes from hacs.json, the runtime requirements from manifest.json
+      # (exactly what Home Assistant pip-installs for the integration), and the
+      # mypy version from poetry.lock so the two legs type-check identically.
+      # The requirements file is written rather than interpolated so nothing
+      # depends on word splitting, and printed so the log shows what ran.
+      - name: Install (declared minimum)
+        if: matrix.ha == 'minimum'
+        run: |
+          python - > min-requirements.txt <<'EOF'
+          import json, tomllib
+          floor = json.load(open("hacs.json"))["homeassistant"]
+          lock = tomllib.load(open("poetry.lock", "rb"))
+          mypy = next(p["version"] for p in lock["package"] if p["name"] == "mypy")
+          print(f"homeassistant=={floor}")
+          print(f"homeassistant-stubs=={floor}")
+          print(f"mypy=={mypy}")
+          print("pytest-homeassistant-custom-component")
+          print("pytest")
+          print("pytest-asyncio")
+          for req in json.load(open("custom_components/span_ebus/manifest.json"))["requirements"]:
+              print(req)
+          EOF
+          cat min-requirements.txt
+          python -m pip install --upgrade pip
+          python -m pip install -r min-requirements.txt
+          python -c "import homeassistant.const as c; print('testing against HA', c.__version__)"
+
       - name: Tests
-        run: poetry run pytest tests/ -q
+        run: ${{ matrix.ha == 'pinned' && 'poetry run pytest tests/ -q' || 'pytest tests/ -q' }}
+
+      # Types runs on BOTH legs, and on the minimum leg it is the stronger of
+      # the two floor checks: the device-registry tests mock the registry, so
+      # they pass against a Home Assistant that lacks the methods entirely,
+      # whereas mypy against that release's stubs reports every call site.
       - name: Types
-        run: poetry run mypy custom_components/span_ebus/
+        run: ${{ matrix.ha == 'pinned' && 'poetry run mypy custom_components/span_ebus/' || 'mypy custom_components/span_ebus/' }}
+
+      # Lint describes the code as written, not as it runs, so once is enough.
       - name: Lint
+        if: matrix.ha == 'pinned'
         run: poetry run ruff check custom_components/span_ebus/ tests/
 
   version-consistency:

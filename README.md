@@ -35,7 +35,7 @@ Two community Home Assistant integrations exist for SPAN panels:
 ## Requirements
 
 - SPAN Panel **MAIN 32**, running firmware **r202633 or later**: the release that publishes the parent/child Homie 5 tree data model. The entity structure is read from the panel's live `$description`, so the integration follows the adapter's published schema. Firmware older than r202633 publishes a flat data model this integration does not read.
-- Home Assistant 2026.2 or later
+- Home Assistant 2026.8 or later (the floor `hacs.json` declares, and what CI tests against)
 - The panel must be reachable on the local network
 
 ## Installation
