@@ -636,3 +636,36 @@ def test_device_info_builders_carry_no_parent_link() -> None:
         assert "via_device_id" not in info
     assert panel["identifiers"] == {(span_ebus.DOMAIN, "nt-0000-test1")}
     assert child["identifiers"] == {(span_ebus.DOMAIN, "nt-0000-test1_circ-1")}
+
+
+def test_registry_apis_the_integration_calls_actually_exist() -> None:
+    """Guard the declared minimum Home Assistant version in ``hacs.json``.
+
+    The device-registry tests mock the registry, so they pass against any
+    Home Assistant release and cannot catch a method that does not exist yet.
+    These are the real symbols, and they set the floor: ``via_device_id`` on
+    ``DeviceInfo`` landed by 2026.5, but ``async_get_device_by_identifier`` only
+    appeared in 2026.8, which is why ``hacs.json`` declares 2026.8.0.
+    """
+    import typing
+
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.device_registry import DeviceInfo, DeviceRegistry
+
+    for name in (
+        "async_get_device_by_identifier",
+        "async_get_devices",
+        "async_get_or_create",
+        "async_update_device",
+        "async_remove_device",
+    ):
+        assert hasattr(DeviceRegistry, name), f"DeviceRegistry.{name} is missing"
+
+    assert hasattr(HomeAssistant, "async_add_import_executor_job")
+
+    keys = typing.get_type_hints(DeviceInfo)
+    assert "via_device_id" in keys, "DeviceInfo.via_device_id is required"
+
+    import inspect
+
+    assert "via_device_id" in inspect.signature(DeviceRegistry.async_get_or_create).parameters
