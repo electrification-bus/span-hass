@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
@@ -11,11 +10,8 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
-from .entity_base import SpanEbusEntity
+from .entity_base import SpanEbusEntity, async_setup_platform_entities
 from .node_mappers import EntitySpec
-
-_LOGGER = logging.getLogger(__name__)
 
 # Default truthy values for boolean-typed binary sensors. Enum-typed sensors
 # should use EntitySpec.on_values to scope precisely.
@@ -28,21 +24,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up SPAN binary sensor entities from a config entry."""
-    panel = hass.data[DOMAIN][entry.entry_id]["panel"]
-    entity_specs: list[EntitySpec] = hass.data[DOMAIN][entry.entry_id]["entity_specs"]
-
-    entities = [
-        SpanEbusBinarySensor(panel, spec)
-        for spec in entity_specs
-        if spec.platform == Platform.BINARY_SENSOR
-    ]
-    if entities:
-        async_add_entities(entities)
-        _LOGGER.debug(
-            "Added %d binary sensor entities for %s",
-            len(entities),
-            panel.serial_number,
-        )
+    async_setup_platform_entities(
+        hass, entry, Platform.BINARY_SENSOR, async_add_entities, SpanEbusBinarySensor
+    )
 
 
 class SpanEbusBinarySensor(SpanEbusEntity, BinarySensorEntity):

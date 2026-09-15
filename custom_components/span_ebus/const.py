@@ -37,6 +37,31 @@ TREE_DISCOVERY_TIMEOUT = 30  # safety backstop on event-driven tree-discovery wa
 CIRCUIT_NAMES_TIMEOUT = 10  # seconds to wait for circuit name properties after ready
 API_TIMEOUT = 15  # seconds for REST API calls
 
+# Grace period before a descendant that dropped off the tree loses its Home
+# Assistant device. Removing a device deletes every entity registered on it,
+# which is irreversible for the user: entity ids, long-term statistics and any
+# Energy Dashboard rows pointing at them all go with it. A panel can drop and
+# re-announce part of its tree for reasons that have nothing to do with the
+# circuit being decommissioned (a retained ``$state`` clear, a partial
+# ``$description.children`` republish), so a single removal signal is treated
+# as "absent for now" and only a sustained absence retires the device.
+DEVICE_REMOVAL_GRACE = 900  # seconds a descendant must stay absent before retirement
+
+# Below this magnitude, a decrease on a TOTAL_INCREASING energy counter is
+# treated as ordinary publisher jitter and held silently rather than warned
+# about. Every decrease is still held, because Home Assistant reads ANY decrease
+# on a total_increasing counter as a meter reset and adds the whole previous
+# total to long-term statistics; the deadband governs only how loudly it is
+# reported. The panels emit a steady trickle of 0.1 Wh decreases (one unit in
+# the last place at the published precision, i.e. float noise on a counter in
+# the tens of MWh), which on a multi-panel install produced a warning and a
+# recovery notice every couple of seconds. The recalibration events this guard
+# exists for are five to seven orders of magnitude larger: the observed ones
+# range from 115 kWh to 1.01 MWh. Expressed in Wh and converted to each
+# sensor's own unit at runtime, so a counter published in kWh is not given a
+# deadband a thousand times too permissive.
+COUNTER_DECREASE_DEADBAND_WH = 1.0
+
 # MQTT
 MQTT_QOS = 1  # QoS 1 avoids paho-mqtt _in_messages accumulation with QoS 2
 EBUS_HOMIE_DOMAIN = "ebus"

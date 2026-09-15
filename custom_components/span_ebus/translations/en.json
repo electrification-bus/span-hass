@@ -40,5 +40,10 @@
       "already_configured": "This SPAN Panel is already configured.",
       "cannot_connect": "Unable to connect to the discovered SPAN Panel."
     }
+  },
+  "exceptions": {
+    "relay_not_controllable": {
+      "message": "{entity_id} cannot be switched. The SPAN Panel does not report this circuit's relay as controllable, which is how a circuit commissioned as permanently on or permanently off is published, and the panel will not act on a relay command."
+    }
   }
 }

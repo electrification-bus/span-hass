@@ -47,6 +47,30 @@ jobs:
             --manifest _spec/spec-manifest.json \
             "${GITHUB_WORKSPACE}/.ebus-spec.json"
 
+  quality:
+    name: Tests, types, lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      # Runs against the locked dependency set, so the suite exercises the
+      # ebus-sdk version a user actually gets rather than a floor nobody
+      # resolves to. The end-to-end mapping test in tests/test_node_mappers.py
+      # replays a captured live panel tree, which is what catches a regression
+      # that silently stops producing entities for a whole class of device.
+      - name: Install
+        run: |
+          pipx install poetry
+          poetry install --no-interaction
+      - name: Tests
+        run: poetry run pytest tests/ -q
+      - name: Types
+        run: poetry run mypy custom_components/span_ebus/
+      - name: Lint
+        run: poetry run ruff check custom_components/span_ebus/ tests/
+
   version-consistency:
     name: Version consistency (manifest vs CHANGELOG)
     runs-on: ubuntu-latest

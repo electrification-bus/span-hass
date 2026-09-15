@@ -11,12 +11,18 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import Platform, UnitOfEnergy
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util.unit_conversion import EnergyConverter
 
-from .const import CAPABILITY_CONNECTION, DEVICE_TYPE_PV, DOMAIN
-from .entity_base import SpanEbusEntity
+from .const import (
+    CAPABILITY_CONNECTION,
+    COUNTER_DECREASE_DEADBAND_WH,
+    DEVICE_TYPE_PV,
+)
+from .entity_base import SpanEbusEntity, async_setup_platform_entities
 from .node_mappers import EntitySpec, device_type_short
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,17 +34,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up SPAN sensor entities from a config entry."""
-    panel = hass.data[DOMAIN][entry.entry_id]["panel"]
-    entity_specs: list[EntitySpec] = hass.data[DOMAIN][entry.entry_id]["entity_specs"]
-
-    entities = [
-        SpanEbusSensor(panel, spec)
-        for spec in entity_specs
-        if spec.platform == Platform.SENSOR
-    ]
-    if entities:
-        async_add_entities(entities)
-        _LOGGER.debug("Added %d sensor entities for %s", len(entities), panel.serial_number)
+    async_setup_platform_entities(
+        hass, entry, Platform.SENSOR, async_add_entities, SpanEbusSensor
+    )
 
 
 class SpanEbusSensor(SpanEbusEntity, SensorEntity):
@@ -73,6 +71,10 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
         # ``_attr_native_value`` because HA's StateType union is wider than
         # float and mypy can't narrow it back for arithmetic.
         self._counter_decrease_suppressed = False
+        # Whether the current suppression episode was large enough to report.
+        # Keeps the recovery notice at the same volume as the notice that
+        # opened the episode, so a sub-deadband blip stays entirely quiet.
+        self._counter_decrease_notable = False
         self._last_numeric: float | None = None
 
         # Sticky: once we observe this circuit feeds a PV device, suppress the
@@ -103,6 +105,25 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
                 self._feeds_pv = True
         return not self._feeds_pv
 
+    def _decrease_deadband(self) -> float:
+        """Smallest counter decrease worth reporting, in this sensor's own unit.
+
+        The threshold is defined in Wh and converted, so a counter published in
+        kWh does not inherit a deadband a thousand times too permissive. An
+        unrecognized unit falls back to the raw figure, which is the
+        conservative direction: it can only make the guard noisier, never
+        quieter.
+        """
+        unit = self._attr_native_unit_of_measurement
+        if unit == UnitOfEnergy.WATT_HOUR or unit is None:
+            return COUNTER_DECREASE_DEADBAND_WH
+        try:
+            return EnergyConverter.convert(
+                COUNTER_DECREASE_DEADBAND_WH, UnitOfEnergy.WATT_HOUR, unit
+            )
+        except (HomeAssistantError, ValueError):
+            return COUNTER_DECREASE_DEADBAND_WH
+
     def _update_from_value(self, value: str) -> None:
         """Update sensor state from a raw MQTT value."""
         if self.device_class in self._NUMERIC_DEVICE_CLASSES:
@@ -121,7 +142,12 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
                 and numeric < prev
             ):
                 if not self._counter_decrease_suppressed:
-                    _LOGGER.warning(
+                    self._counter_decrease_suppressed = True
+                    self._counter_decrease_notable = (
+                        prev - numeric > self._decrease_deadband()
+                    )
+                    _LOGGER.log(
+                        logging.WARNING if self._counter_decrease_notable else logging.DEBUG,
                         "Energy counter decrease suppressed for %s: "
                         "%.1f → %.1f (Δ%.1f %s); holding previous value",
                         self.entity_id,
@@ -130,19 +156,20 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
                         prev - numeric,
                         self._attr_native_unit_of_measurement or "",
                     )
-                    self._counter_decrease_suppressed = True
                 return
             if (
                 self._counter_decrease_suppressed
                 and prev is not None
                 and numeric >= prev
             ):
-                _LOGGER.info(
+                _LOGGER.log(
+                    logging.INFO if self._counter_decrease_notable else logging.DEBUG,
                     "Energy counter for %s caught up (%.1f); resuming normal tracking",
                     self.entity_id,
                     numeric,
                 )
                 self._counter_decrease_suppressed = False
+                self._counter_decrease_notable = False
             self._attr_native_value = numeric
             self._last_numeric = numeric
         else:

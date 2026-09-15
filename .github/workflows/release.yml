@@ -62,8 +62,10 @@ jobs:
           # Body = lines between this heading and the next "## [" heading.
           REL=$(tail -n +$((START + 1)) CHANGELOG.md | grep -nE '^## \[' | head -1 | cut -d: -f1 || true)
           if [ -n "${REL:-}" ]; then
+            # REL is 1-based within the tail, so the next heading sits at file
+            # line START+REL; the body is everything up to the line before it.
             END=$((START + REL - 1))
-            sed -n "$((START + 1)),$((END - 1))p" CHANGELOG.md > NOTES.md
+            sed -n "$((START + 1)),${END}p" CHANGELOG.md > NOTES.md
           else
             sed -n "$((START + 1)),\$p" CHANGELOG.md > NOTES.md
           fi

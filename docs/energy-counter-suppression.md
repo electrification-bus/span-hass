@@ -14,14 +14,23 @@ Home Assistant's `total_increasing` state class assumes energy counters are mono
 
 In `sensor.py`, the `_update_from_value()` method for `TOTAL_INCREASING` sensors implements a high-water-mark hold:
 
-1. When a new value is **less than** the current value, the update is suppressed and the previous value is retained.
-2. A `WARNING` log is emitted on the first suppression event for each entity (subsequent suppressions within the same hold period are silent).
-3. Once the counter **catches back up** to or exceeds the high-water mark, normal tracking resumes and an `INFO` log confirms recovery.
+1. When a new value is **less than** the current value, the update is suppressed and the previous value is retained. This happens for **every** decrease regardless of size, because Home Assistant reads any decrease at all as a meter reset.
+2. The first suppression of each hold period is logged. Its level depends on the size of the decrease, measured against the `COUNTER_DECREASE_DEADBAND_WH` threshold in `const.py` (1 Wh, converted to the sensor's own unit so a counter published in kWh is not given a deadband a thousand times too permissive). A decrease **above** the deadband is a recalibration and logs at `WARNING`; a decrease **at or below** it is routine publisher jitter and logs at `DEBUG`.
+3. Once the counter **catches back up** to or exceeds the high-water mark, normal tracking resumes. The recovery notice is logged at the volume matching the notice that opened the episode: `INFO` after a `WARNING`, `DEBUG` after a `DEBUG`, so a sub-deadband blip is silent from end to end.
 
 This approach:
+
 - Prevents false meter-reset spikes in HA statistics
 - Preserves accurate energy accounting (the suppressed delta is typically < 1 Wh and is recovered within seconds)
-- Logs enough detail for monitoring without flooding the log
+- Keeps the routine jitter out of the log while leaving the events that matter loud
+
+### Why the deadband exists
+
+The original implementation logged every hold at `WARNING` and every recovery at `INFO`, irrespective of magnitude. Because the jitter recurs every one to two seconds on the affected counters, a multi-panel install wrote a `WARNING` and an `INFO` line into the log continuously and indefinitely. Measured on a three-panel install in September 2026, 11 of the last 100 log lines were this one message pair, on `c1akc_downstream_lugs_exported_energy` and `c192x_lugs_imported_energy_2`, all with a delta of 0.1 Wh.
+
+The two cases are separated by five to seven orders of magnitude, which is what makes a fixed threshold safe. The jitter is 0.1 Wh, one unit in the last place at the published precision, on counters in the tens of MWh: floating-point noise rather than an energy event. The recalibrations this guard was written for are far larger; the ones observed on the PV energy counter were 115 kWh, 153 kWh, 573 kWh and 1.01 MWh.
+
+Note that the deadband changes **only the log level**. The suppression itself is unconditional, so the protection against false meter-reset spikes is exactly as strong as before.
 
 ## Observed Frequency
 

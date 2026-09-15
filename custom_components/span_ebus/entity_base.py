@@ -6,9 +6,14 @@ from abc import abstractmethod
 from collections.abc import Callable
 import logging
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import DOMAIN
 from .node_mappers import EntitySpec
 from .span_panel import SpanPanel
 from .util import (
@@ -109,3 +114,62 @@ def _device_info_for_spec(panel: SpanPanel, spec: EntitySpec) -> DeviceInfo:
         device_name=spec.device_name,
         parent_device_id=spec.via_device_id or None,
     )
+
+
+# ── Platform setup + post-setup entity additions ──────────────────────────
+
+# Builds the platform's concrete entity class from a spec.
+EntityFactory = Callable[[SpanPanel, EntitySpec], Entity]
+
+
+@callback
+def async_setup_platform_entities(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    platform: Platform,
+    async_add_entities: AddEntitiesCallback,
+    factory: EntityFactory,
+) -> None:
+    """Create this platform's entities and keep the door open for later ones.
+
+    Setup runs once, but the tree does not stand still: a descendant can be
+    re-announced after a transient drop, a circuit can be commissioned while
+    Home Assistant is running, and a late child can arrive after setup already
+    committed. Registering the platform's ``async_add_entities`` here lets
+    ``__init__``'s tree-state hook add whatever the next tree walk turns up,
+    so a tree change no longer needs a config-entry reload to show up.
+
+    Every addition is keyed on ``unique_id``, so re-adding an entity Home
+    Assistant already knows is a no-op and an entity that was previously
+    removed comes back on its original ``entity_id`` (and with its statistics
+    history intact) rather than as a ``_2`` duplicate. The bookkeeping is
+    grouped by device id so that retiring a device can forget exactly its own
+    ids, leaving it free to create them again if it is ever re-announced.
+    """
+    data = hass.data[DOMAIN][entry.entry_id]
+    panel: SpanPanel = data["panel"]
+    created: dict[str, set[str]] = data["created_by_device"]
+
+    @callback
+    def _add(specs: list[EntitySpec]) -> int:
+        entities: list[Entity] = []
+        for spec in specs:
+            if spec.platform != platform:
+                continue
+            unique_id = make_unique_id(
+                panel.serial_number, spec.device_id, spec.capability, spec.property_id
+            )
+            device_created = created.setdefault(spec.device_id, set())
+            if unique_id in device_created:
+                continue
+            device_created.add(unique_id)
+            entities.append(factory(panel, spec))
+        if entities:
+            async_add_entities(entities)
+        return len(entities)
+
+    data["adders"][platform] = _add
+
+    added = _add(data["entity_specs"])
+    if added:
+        _LOGGER.debug("Added %d %s entities for %s", added, platform, panel.serial_number)
