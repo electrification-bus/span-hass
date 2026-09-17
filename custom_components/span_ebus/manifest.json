@@ -9,7 +9,7 @@
   "issue_tracker": "https://github.com/electrification-bus/span-hass/issues",
   "loggers": ["ebus_sdk", "homie", "paho"],
   "requirements": ["ebus-sdk>=0.23.1,<0.24"],
-  "version": "0.4.0",
+  "version": "0.4.1",
   "zeroconf": [
     {"type": "_ebus._tcp.local.", "name": "span-*"},
     {"type": "_secure-mqtt._tcp.local.", "name": "span-*"}

@@ -4,6 +4,13 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-09-17
+
+### Fixed
+
+- **The energy-counter deadband was set too low and left real jitter warning.** 0.4.0 introduced a 1 Wh threshold below which a decrease on a `total_increasing` counter is held silently rather than warned about, calibrated from a 29-minute sample that happened to contain only the 0.1 Wh case. A full day of live traffic across three panels shows the jitter is wider than that: decreases of 0.1, 0.5, 1.0, 1.1, 1.5 and 2.0 Wh, all on counters in the tens of MWh, so a 2 Wh step is 2e-7 of the reading and is float noise rather than an energy event. Everything above 1 Wh kept warning, which was most of the noise the deadband existed to remove. The threshold is now 100 Wh: 50 times the largest observed jitter, and still 1000 times below the smallest real recalibration ever recorded here (115.7 kWh on the PV energy counter, against a largest of 1.01 MWh). The suppression itself is unchanged, as is the unit conversion; only the reporting threshold moves.
+- **The deadband now has tests that pin its value, not only its mechanism.** The 0.4.0 tests asserted that a sub-threshold decrease is silent and a large one warns, which is true at any threshold, so they passed both before and after this change and could not have caught the miscalibration. The new tests parametrize over every decrease magnitude actually observed in production and every real recalibration in the counter's history, and assert the constant sits at least a decade clear of each population. Against the 0.4.0 value they fail, naming the 1.1, 1.5 and 2.0 Wh cases.
+
 ## [0.4.0] — 2026-09-15
 
 A correctness release. The headline fix is that a transient MQTT signal from the panel could permanently delete a user's entities, taking their entity ids and long-term statistics history with them. The relay switch also gains the write gate the panel has been publishing all along.

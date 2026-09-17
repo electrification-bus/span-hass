@@ -6,6 +6,7 @@ import logging
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import Platform, UnitOfEnergy, UnitOfPower
+import pytest
 
 from custom_components.span_ebus.const import CAPABILITY_CONNECTION, CAPABILITY_METER
 from custom_components.span_ebus.node_mappers import EntitySpec
@@ -286,3 +287,55 @@ def test_measurement_sensors_are_free_to_decrease(caplog) -> None:
         sensor._update_from_value("-50.0")
     assert caplog.records == []
     assert sensor.native_value == 50.0
+
+
+# ── Deadband calibration, pinned against observed live traffic ────────────
+#
+# The tests above verify the mechanism: that a sub-deadband decrease is silent
+# and a large one warns. They pass at any threshold, which is how a 1.0 Wh
+# value shipped in 0.4.0 and left real jitter warning. These pin the VALUE
+# against what the panels actually emit.
+
+# Every decrease magnitude observed across three panels over a full day.
+OBSERVED_JITTER_WH = (0.1, 0.5, 1.0, 1.1, 1.5, 2.0)
+
+# Real recalibration events from the PV energy counter's own history; the
+# smallest is the one the deadband must stay well below.
+OBSERVED_RECALIBRATIONS_WH = (115_709.0, 153_041.5, 572_500.5, 1_014_158.0)
+
+
+@pytest.mark.parametrize("delta", OBSERVED_JITTER_WH)
+def test_every_observed_jitter_magnitude_is_silent(delta, caplog) -> None:
+    """All of it, not just the 0.1 Wh case that a short sample happened to show."""
+    sensor = SpanEbusSensor(_FakePanel(), _energy_spec())
+    sensor._update_from_value("8929099.3")
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        sensor._update_from_value(str(8929099.3 - delta))
+    assert _above(caplog, logging.INFO) == [], f"{delta} Wh jitter still warns"
+
+
+@pytest.mark.parametrize("delta", OBSERVED_RECALIBRATIONS_WH)
+def test_every_observed_recalibration_still_warns(delta, caplog) -> None:
+    """The events the guard exists for must stay loud."""
+    sensor = SpanEbusSensor(_FakePanel(), _energy_spec())
+    sensor._update_from_value("3655345.7")
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        sensor._update_from_value(str(3655345.7 - delta))
+    assert _above(caplog, logging.INFO) == [logging.WARNING]
+
+
+def test_deadband_sits_between_the_noise_and_the_signal() -> None:
+    """Pin the constant into the gap, with margin on both sides.
+
+    Five orders of magnitude separate the two populations, so the threshold has
+    a wide safe range; this asserts it is inside that range rather than at
+    either edge, which is the mistake 0.4.0 made.
+    """
+    from custom_components.span_ebus.const import COUNTER_DECREASE_DEADBAND_WH
+
+    worst_jitter = max(OBSERVED_JITTER_WH)
+    smallest_real = min(OBSERVED_RECALIBRATIONS_WH)
+    assert worst_jitter * 10 <= COUNTER_DECREASE_DEADBAND_WH, "too close to the noise"
+    assert smallest_real / 10 >= COUNTER_DECREASE_DEADBAND_WH, "too close to the signal"
