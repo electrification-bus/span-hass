@@ -52,15 +52,25 @@ DEVICE_REMOVAL_GRACE = 900  # seconds a descendant must stay absent before retir
 # about. Every decrease is still held, because Home Assistant reads ANY decrease
 # on a total_increasing counter as a meter reset and adds the whole previous
 # total to long-term statistics; the deadband governs only how loudly it is
-# reported. The panels emit a steady trickle of 0.1 Wh decreases (one unit in
-# the last place at the published precision, i.e. float noise on a counter in
-# the tens of MWh), which on a multi-panel install produced a warning and a
-# recovery notice every couple of seconds. The recalibration events this guard
-# exists for are five to seven orders of magnitude larger: the observed ones
-# range from 115 kWh to 1.01 MWh. Expressed in Wh and converted to each
-# sensor's own unit at runtime, so a counter published in kWh is not given a
-# deadband a thousand times too permissive.
-COUNTER_DECREASE_DEADBAND_WH = 1.0
+# reported.
+#
+# Calibrated against a full day of live traffic across three panels rather than
+# a single sample. The observed jitter is 0.1, 0.5, 1.0, 1.1, 1.5 and 2.0 Wh,
+# on counters in the tens of MWh: a 2 Wh step on 8.9 MWh is 2e-7, which is
+# float noise rather than an energy event. The recalibration events this guard
+# exists for are five orders of magnitude larger; the smallest observed on the
+# PV energy counter was 115.7 kWh, and the largest 1.01 MWh.
+#
+# That leaves an enormous safe range, so this sits deliberately in the middle
+# of it: 50x above the largest observed jitter and 1000x below the smallest
+# real event. An earlier 1.0 Wh value was calibrated from a 29-minute window
+# that happened to contain only the 0.1 Wh case, and left the 1.1 to 2.0 Wh
+# jitter still warning.
+#
+# Expressed in Wh and converted to each sensor's own unit at runtime, so a
+# counter published in kWh is not given a deadband a thousand times too
+# permissive.
+COUNTER_DECREASE_DEADBAND_WH = 100.0
 
 # MQTT
 MQTT_QOS = 1  # QoS 1 avoids paho-mqtt _in_messages accumulation with QoS 2
