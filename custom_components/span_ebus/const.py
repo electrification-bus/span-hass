@@ -88,6 +88,10 @@ DEVICE_TYPE_PV = "pv"
 DEVICE_TYPE_EVSE = "evse"
 DEVICE_TYPE_CIRCUIT = "circuit"
 
+# Device-name label for a circuit-class device whose only capability is
+# ``meter`` (a remote current transformer), which publishes no ``info/name``.
+REMOTE_CT_LABEL = "Remote CT"
+
 # Capabilities (Homie node-ids within a device). Short capability names form
 # part of the (device-class, capability, property) keys in the SEMANTICS table
 # in semantics.py.

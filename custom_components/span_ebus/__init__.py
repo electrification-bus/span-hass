@@ -34,11 +34,13 @@ from .const import (
     DEVICE_TYPE_LUGS,
     DOMAIN,
     PLATFORMS,
+    REMOTE_CT_LABEL,
     TREE_DISCOVERY_TIMEOUT,
 )
 from .util import (
     DEVICE_TYPE_LABELS,
     descendant_device_info,
+    is_meter_only_circuit,
     panel_device_info,
     parent_identifier,
 )
@@ -176,11 +178,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     controller = panel.controller
     assert controller is not None  # async_start was awaited successfully
 
-    circuit_device_ids = [
-        device_id
-        for device_id, dev in controller.devices.items()
-        if (dev.description or {}).get("type") == f"energy.ebus.device.{DEVICE_TYPE_CIRCUIT}"
-    ]
+    circuit_device_ids = _named_circuit_ids(controller.devices)
     if circuit_device_ids:
         names_ok = await _wait_for_circuit_names(
             panel, circuit_device_ids, CIRCUIT_NAMES_TIMEOUT
@@ -266,7 +264,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Circuits whose entities are held back until ``info/name`` lands, mapped to
     # the cleanups for their name callback and timeout backstop. Home Assistant
     # freezes ``entity_id`` at creation, so a circuit whose entities are built
-    # while its name is still in flight is stuck on the ``Circuit <hex>``
+    # while its name is still in flight is stuck on the ``Circuit <device-id>``
     # fallback permanently. Setup avoids that with ``_wait_for_circuit_names``;
     # these two structures are the post-setup equivalent.
     named_deferrals: dict[str, list[Callable[[], None]]] = {}
@@ -330,10 +328,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             dr.async_get(hass), entry.entry_id, panel, panel.controller, refreshed_specs
         )
 
+        named_circuits = set(_named_circuit_ids(panel.controller.devices))
         held = {
             spec.device_id
             for spec in refreshed_specs
-            if spec.device_type == DEVICE_TYPE_CIRCUIT
+            if spec.device_id in named_circuits
             and spec.device_id not in named_released
             and panel.get_property_value(spec.device_id, "info", "name") is None
         }
@@ -629,6 +628,21 @@ async def _wait_for_tree_discovery(
         unregister()
 
 
+def _named_circuit_ids(devices: Mapping[str, Any]) -> list[str]:
+    """Return the circuit-class devices expected to publish ``info/name``.
+
+    A meter-only circuit (a remote current transformer) publishes no name, so
+    waiting on it would only ever end in the timeout.
+    """
+    circuit_type = f"energy.ebus.device.{DEVICE_TYPE_CIRCUIT}"
+    return [
+        device_id
+        for device_id, dev in list(devices.items())
+        if (dev.description or {}).get("type") == circuit_type
+        and not is_meter_only_circuit(dev.description)
+    ]
+
+
 async def _wait_for_circuit_names(
     panel: Any,
     circuit_device_ids: list[str],
@@ -737,11 +751,12 @@ def _stamp_device_presentation(
 
     Mappers can't reach across devices, so the per-entity HA presentation
     fields are stamped here at the integration layer. Circuit names come from
-    the circuit's own ``info/name``; other descendants get a generated label
-    derived from the device class.
+    the circuit's own ``info/name``; a meter-only circuit and other descendants
+    get a generated label.
     """
     from .node_mappers import device_type_short  # noqa: PLC0415
 
+    short_serial = panel.serial_number.rsplit("-", 1)[-1]
     for spec in entity_specs:
         dev = controller.devices.get(spec.device_id)
         if dev is None:
@@ -754,12 +769,13 @@ def _stamp_device_presentation(
             spec.device_name = ""  # panel device handled separately
             continue
 
-        if dtype == DEVICE_TYPE_CIRCUIT:
+        if is_meter_only_circuit(dev.description):
+            spec.device_name = f"{short_serial} {REMOTE_CT_LABEL}"
+        elif dtype == DEVICE_TYPE_CIRCUIT:
             label = panel.get_property_value(spec.device_id, "info", "name")
-            spec.device_name = label or f"Circuit {spec.device_id[:6]}"
+            spec.device_name = label or f"Circuit {spec.device_id}"
         else:
             type_label = DEVICE_TYPE_LABELS.get(dtype, dtype.title())
-            short_serial = panel.serial_number.rsplit("-", 1)[-1]
             # Lugs come in matched up/down pairs; the device-class label alone
             # ("Lugs") collides between the two. Read info/direction off the
             # device and prefix accordingly so HA's entity_id auto-derivation

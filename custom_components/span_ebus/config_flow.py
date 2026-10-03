@@ -22,6 +22,7 @@ from .api_client import (
     SpanAuthError,
     SpanConnectionError,
     SpanNotReadyError,
+    SpanRateLimitError,
     is_pem_certificate,
 )
 from .const import (
@@ -52,6 +53,8 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
         self._host: str = ""
         self._serial_number: str = ""
         self._firmware_version: str = ""
+        self._hardware_version: str | None = None
+        self._is_other_model: bool | None = None
         self._client: SpanApiClient | None = None
         self._auth: AuthResponse | None = None
 
@@ -76,6 +79,15 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
 
         self._serial_number = status.serial_number
         self._firmware_version = status.firmware_version
+        self._hardware_version = status.hardware_version
+        self._is_other_model = status.is_other_model
+        _LOGGER.debug(
+            "Panel %s: firmware=%s, hardware=%s, proximityProven=%s",
+            self._serial_number,
+            self._firmware_version,
+            self._hardware_version,
+            status.proximity_proven,
+        )
 
         await self.async_set_unique_id(self._serial_number)
         self._abort_if_unique_id_configured(updates={CONF_HOST: self._host})
@@ -134,7 +146,14 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_auth_menu(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Show auth method menu."""
+        """Show auth method menu.
+
+        As of firmware r202639, SPAN Panel models other than MAIN 32 accept
+        only the passphrase, so they go straight to the passphrase form.
+        Revisit this if a later firmware adds door bypass on those models.
+        """
+        if self._is_other_model is True:
+            return await self.async_step_auth_passphrase()
         return self.async_show_menu(
             step_id="auth_menu",
             menu_options=["auth_passphrase", "auth_door_bypass"],
@@ -170,6 +189,10 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+            description_placeholders={
+                "serial": self._serial_number,
+                "firmware": self._firmware_version,
+            },
         )
 
     async def async_step_auth_door_bypass(
@@ -211,6 +234,8 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
             return None, {"base": auth_error}
         except SpanNotReadyError:
             return None, {"base": "not_ready"}
+        except SpanRateLimitError:
+            return None, {"base": "rate_limited"}
         except SpanConnectionError:
             return None, {"base": "cannot_connect"}
         except Exception:

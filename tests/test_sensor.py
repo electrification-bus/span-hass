@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
+from pathlib import Path
+from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import Platform, UnitOfEnergy, UnitOfPower
 import pytest
 
 from custom_components.span_ebus.const import CAPABILITY_CONNECTION, CAPABILITY_METER
-from custom_components.span_ebus.node_mappers import EntitySpec
+from custom_components.span_ebus.node_mappers import EntitySpec, entities_from_tree
 from custom_components.span_ebus.sensor import SpanEbusSensor
 
 
@@ -101,6 +104,110 @@ def test_pv_detection_is_late_binding_and_sticky() -> None:
     props.clear()
     sensor._update_from_value("100.0")
     assert sensor.native_value == 100.0
+
+
+# ── feeds-role SOLAR (SPAN Panel models other than MAIN 32) ───────────────
+
+SYNTHETIC = Path(__file__).parent / "fixtures" / "tree" / "synthetic-other-model.json"
+
+
+def test_solar_role_circuit_power_is_not_negated() -> None:
+    """A circuit with feeds-role SOLAR and no pv device reports generation raw."""
+    panel = _FakePanel({("circ-solar", CAPABILITY_CONNECTION, "feeds-role"): "SOLAR"})
+    sensor = SpanEbusSensor(panel, _circuit_power_spec("circ-solar"))
+    sensor._update_from_value("1500.0")
+    assert sensor.native_value == 1500.0
+
+
+def test_solar_role_detection_is_late_binding_and_sticky() -> None:
+    """feeds-role can arrive after the first power sample, then stays decided."""
+    props: dict[tuple[str, str, str], str] = {}
+    panel = _FakePanel(props)
+    sensor = SpanEbusSensor(panel, _circuit_power_spec("circ-solar"))
+
+    sensor._update_from_value("1500.0")
+    assert sensor.native_value == -1500.0
+
+    props[("circ-solar", CAPABILITY_CONNECTION, "feeds-role")] = "SOLAR"
+    sensor._update_from_value("1500.0")
+    assert sensor.native_value == 1500.0
+
+    props.clear()
+    sensor._update_from_value("1500.0")
+    assert sensor.native_value == 1500.0
+
+
+@pytest.mark.parametrize("role", ["STORAGE", "LOADS", "MIXED"])
+def test_non_solar_role_circuit_power_is_negated(role: str) -> None:
+    """Any feeds-role other than SOLAR keeps the load sign flip."""
+    panel = _FakePanel({("circ-x", CAPABILITY_CONNECTION, "feeds-role"): role})
+    sensor = SpanEbusSensor(panel, _circuit_power_spec("circ-x"))
+    sensor._update_from_value("83.3")
+    assert sensor.native_value == -83.3
+
+
+def _synthetic_sensors() -> tuple[dict[str, Any], dict[tuple[str, str, str], str]]:
+    """Load the synthetic tree and its published values keyed by (device, capability, property)."""
+    devices = json.loads(SYNTHETIC.read_text())["devices"]
+    values: dict[tuple[str, str, str], str] = {}
+    for device_id, data in devices.items():
+        for key, value in data["properties"].items():
+            if value is not None:
+                capability, prop = key.split("/", 1)
+                values[(device_id, capability, prop)] = value
+    return devices, values
+
+
+def _synthetic_sensor(
+    devices: dict[str, Any],
+    values: dict[tuple[str, str, str], str],
+    device_id: str,
+    capability: str,
+    property_id: str,
+) -> SpanEbusSensor:
+    spec = next(
+        s
+        for s in entities_from_tree(devices)
+        if (s.device_id, s.capability, s.property_id) == (device_id, capability, property_id)
+    )
+    return SpanEbusSensor(_FakePanel(values), spec)
+
+
+def test_synthetic_solar_circuit_reads_positive() -> None:
+    """The fixture's feeds-role SOLAR circuit at +1500 W reads +1500 W."""
+    devices, values = _synthetic_sensors()
+    device_id = next(
+        d for d in devices if values.get((d, CAPABILITY_CONNECTION, "feeds-role")) == "SOLAR"
+    )
+    sensor = _synthetic_sensor(devices, values, device_id, CAPABILITY_METER, "active-power")
+    sensor._update_from_value(values[(device_id, CAPABILITY_METER, "active-power")])
+    assert sensor.native_value == 1500.0
+
+
+def test_synthetic_meter_only_circuit_is_negated() -> None:
+    """A circuit with only a meter node has no connection node, so it keeps the flip.
+
+    Pins current behavior until a live panel shows its sign frame.
+    """
+    devices, values = _synthetic_sensors()
+    device_id = next(
+        d
+        for d, data in devices.items()
+        if set(data["description"]["nodes"]) == {CAPABILITY_METER}
+    )
+    sensor = _synthetic_sensor(devices, values, device_id, CAPABILITY_METER, "active-power")
+    sensor._update_from_value("250.0")
+    assert sensor.native_value == -250.0
+
+
+def test_frequency_is_numeric() -> None:
+    """The panel line frequency is parsed to a float, not left as a string."""
+    devices, values = _synthetic_sensors()
+    root = next(d for d, data in devices.items() if data["is_root"])
+    sensor = _synthetic_sensor(devices, values, root, CAPABILITY_METER, "frequency")
+    assert sensor.device_class == SensorDeviceClass.FREQUENCY
+    sensor._update_from_value("60.01")
+    assert sensor.native_value == 60.01
 
 
 # ── power-flows sign frame ────────────────────────────────────────────────
@@ -437,3 +544,21 @@ def test_deadband_sits_between_the_noise_and_the_signal() -> None:
     smallest_real = min(OBSERVED_RECALIBRATIONS_WH)
     assert worst_jitter * 10 <= COUNTER_DECREASE_DEADBAND_WH, "too close to the noise"
     assert smallest_real / 10 >= COUNTER_DECREASE_DEADBAND_WH, "too close to the signal"
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("37.7749", 37.7749), ("", None), ("n/a", None)])
+def test_unit_without_numeric_device_class_is_parsed(raw: str, expected: float | None) -> None:
+    """A diagnostic with a unit but no numeric device class (latitude) never holds text."""
+    sensor = SpanEbusSensor(
+        _FakePanel(),
+        EntitySpec(
+            device_id="nt-0000-test1",
+            capability="info",
+            property_id="latitude",
+            platform=Platform.SENSOR,
+            name="Latitude",
+            native_unit="°",
+        ),
+    )
+    sensor._update_from_value(raw)
+    assert sensor.native_value == expected

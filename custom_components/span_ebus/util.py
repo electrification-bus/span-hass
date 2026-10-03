@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import re
+from typing import Any
 
 from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import (
+    CAPABILITY_METER,
     DEVICE_TYPE_BESS,
     DEVICE_TYPE_CIRCUIT,
     DEVICE_TYPE_DISTRIBUTION_ENCLOSURE,
@@ -15,6 +18,7 @@ from .const import (
     DEVICE_TYPE_MID,
     DEVICE_TYPE_PV,
     DOMAIN,
+    HOMIE_DEVICE_TYPE_PREFIX,
 )
 
 # Human-readable model labels per short device-class name (the trailing
@@ -29,6 +33,18 @@ DEVICE_TYPE_LABELS = {
     DEVICE_TYPE_EVSE: "EV Charger",
     DEVICE_TYPE_CIRCUIT: "Circuit",
 }
+
+
+def is_meter_only_circuit(description: Mapping[str, Any] | None) -> bool:
+    """Whether a ``$description`` is a circuit-class device with only a ``meter`` node.
+
+    Such a device (a remote current transformer) publishes no ``info/name``.
+    Decided from the description alone.
+    """
+    desc = description or {}
+    if desc.get("type") != f"{HOMIE_DEVICE_TYPE_PREFIX}{DEVICE_TYPE_CIRCUIT}":
+        return False
+    return set(desc.get("nodes") or {}) == {CAPABILITY_METER}
 
 
 # First release whose BESS ``meter/active-power`` is positive while discharging
@@ -124,9 +140,8 @@ def make_unique_id(
 
     Format: ``{panel-serial}_{device-id}_{capability}_{property-id}``. The
     panel-serial prefix is intentional even when device_id already contains
-    it — circuits publish under bare UUIDs (no panel-serial prefix in the
-    Homie device-id), so the panel-serial here is the only thing keeping
-    those entity IDs unique across multiple SPAN integrations on one HA
-    install.
+    it: device ids are opaque and need not carry the panel serial, so the
+    prefix is what keeps entity IDs unique across multiple SPAN integrations
+    on one HA install.
     """
     return f"{panel_serial}_{device_id}_{capability}_{property_id}"

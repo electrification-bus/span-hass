@@ -60,6 +60,8 @@ class EntitySpec:
     icon: str | None = None
     settable: bool = False
     on_values: set[str] = field(default_factory=set)
+    # False registers the entity disabled; the user can enable it.
+    enabled_default: bool = True
 
     # Subscribe to a different property than property_id for MQTT updates.
     # When set, unique_id uses property_id but the MQTT callback registers on
@@ -71,10 +73,12 @@ class EntitySpec:
     negate: bool = False
 
     # When True, the sensor suppresses ``negate`` at runtime if the owning
-    # circuit feeds a PV device (``connection/feeds-device-type == pv``). PV-feed
-    # circuits already report generation as positive, so the load sign-flip must
-    # not apply. Decided at runtime, not build time, because feeds-device-type
-    # (a retained sibling property) may not have landed when entities are built.
+    # circuit feeds solar: a PV device (``connection/feeds-device-type == pv``)
+    # or, on SPAN Panel models other than MAIN 32, ``connection/feeds-role ==
+    # SOLAR``. PV-feed circuits already report generation as positive, so the
+    # load sign-flip must not apply. Decided at runtime, not build time, because
+    # these retained sibling properties may not have landed when entities are
+    # built.
     pv_sign_aware: bool = False
 
     # HA DeviceInfo construction. device_type is the short device-class name

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,7 +26,10 @@ from custom_components.span_ebus.const import (
     CONF_EBUS_BROKER_USERNAME,
     CONF_HOST,
     DOMAIN,
+    REMOTE_CT_LABEL,
 )
+from custom_components.span_ebus.node_mappers import entities_from_tree
+from custom_components.span_ebus.util import is_meter_only_circuit, make_unique_id
 
 from .conftest import MOCK_CA_CERT, MOCK_CONFIG_DATA, MOCK_HOST
 
@@ -795,3 +800,152 @@ def test_every_integration_module_imports() -> None:
     for name in modules:
         importlib.import_module(f"custom_components.span_ebus.{name}")
     importlib.import_module("custom_components.span_ebus")
+
+
+# ── Meter-only circuits and device names ──────────────────────────────────
+
+_TREE_FIXTURES = Path(__file__).parent / "fixtures" / "tree"
+
+
+def _load_tree(name: str) -> tuple[str, dict[str, Any]]:
+    data = json.loads((_TREE_FIXTURES / name).read_text())
+    return data["metadata"]["serial"], data["devices"]
+
+
+def _fixture_controller_and_panel(
+    serial: str, devices: dict[str, Any], names: dict[str, str] | None = None
+) -> tuple[MagicMock, MagicMock]:
+    """Build a controller and panel mock that serve a tree fixture's values."""
+    controller = MagicMock()
+    controller.devices = {}
+    for device_id, dev in devices.items():
+        d = MagicMock()
+        d.description = dev["description"]
+        d.parent_id = dev.get("parent_id")
+        controller.devices[device_id] = d
+
+    values = {
+        (device_id, *key.split("/", 1)): value
+        for device_id, dev in devices.items()
+        for key, value in dev["properties"].items()
+    }
+    for device_id, name in (names or {}).items():
+        values[(device_id, "info", "name")] = name
+
+    panel = MagicMock()
+    panel.serial_number = serial
+    panel.get_property_value = lambda *args: values.get(args)
+    panel.register_property_callback = MagicMock(return_value=lambda: None)
+    return controller, panel
+
+
+def _circuits(devices: dict[str, Any]) -> list[str]:
+    return [
+        device_id
+        for device_id, dev in devices.items()
+        if dev["description"]["type"] == "energy.ebus.device.circuit"
+    ]
+
+
+def _meter_only(devices: dict[str, Any]) -> list[str]:
+    return [
+        device_id
+        for device_id in _circuits(devices)
+        if set(devices[device_id]["description"]["nodes"]) == {"meter"}
+    ]
+
+
+def _unnamed_full_circuits(devices: dict[str, Any]) -> list[str]:
+    return [
+        device_id
+        for device_id in _circuits(devices)
+        if device_id not in _meter_only(devices)
+        and devices[device_id]["properties"].get("info/name") is None
+    ]
+
+
+def test_is_meter_only_circuit_matches_only_the_meter_only_device() -> None:
+    """True for the circuit with only a meter node; false for an unnamed full circuit."""
+    _, devices = _load_tree("synthetic-other-model.json")
+    meter_only = _meter_only(devices)
+    unnamed = _unnamed_full_circuits(devices)
+    assert len(meter_only) == 1 and len(unnamed) == 1
+
+    matched = [
+        device_id
+        for device_id, dev in devices.items()
+        if is_meter_only_circuit(dev["description"])
+    ]
+    assert matched == meter_only
+    assert not is_meter_only_circuit(devices[unnamed[0]]["description"])
+    assert not is_meter_only_circuit(None)
+    # A non-circuit device with only a meter node is not a meter-only circuit.
+    assert not is_meter_only_circuit(
+        {"type": "energy.ebus.device.lugs", "nodes": {"meter": {}}}
+    )
+
+
+def test_main32_fixture_has_no_meter_only_circuit() -> None:
+    """Every MAIN 32 circuit still takes part in the name wait."""
+    serial, devices = _load_tree("nt-2143-c1akc.json")
+    controller, _ = _fixture_controller_and_panel(serial, devices)
+    assert _meter_only(devices) == []
+    assert span_ebus._named_circuit_ids(controller.devices) == _circuits(devices)
+
+
+def test_stamp_names_remote_ct_and_falls_back_to_the_whole_device_id() -> None:
+    serial, devices = _load_tree("synthetic-other-model.json")
+    controller, panel = _fixture_controller_and_panel(serial, devices)
+    specs = entities_from_tree(devices)
+
+    span_ebus._stamp_device_presentation(panel, controller, specs)
+
+    names = {spec.device_id: spec.device_name for spec in specs}
+    short_serial = serial.rsplit("-", 1)[-1]
+    (remote_ct,) = _meter_only(devices)
+    (unnamed,) = _unnamed_full_circuits(devices)
+    assert names[remote_ct] == f"{short_serial} {REMOTE_CT_LABEL}"
+    assert names[unnamed] == f"Circuit {unnamed}"
+    for device_id in _circuits(devices):
+        label = devices[device_id]["properties"].get("info/name")
+        if label is not None:
+            assert names[device_id] == label
+
+
+def test_stamp_keeps_main32_circuit_names() -> None:
+    serial, devices = _load_tree("nt-2143-c1akc.json")
+    controller, panel = _fixture_controller_and_panel(serial, devices)
+    specs = entities_from_tree(devices)
+
+    span_ebus._stamp_device_presentation(panel, controller, specs)
+
+    for spec in specs:
+        if spec.device_id in _circuits(devices):
+            assert spec.device_name == devices[spec.device_id]["properties"]["info/name"]
+
+
+async def test_name_wait_skips_the_remote_ct() -> None:
+    """With every named-capable circuit named, the wait returns at once."""
+    serial, devices = _load_tree("synthetic-other-model.json")
+    (unnamed,) = _unnamed_full_circuits(devices)
+    controller, panel = _fixture_controller_and_panel(
+        serial, devices, names={unnamed: "Garage"}
+    )
+
+    circuit_ids = span_ebus._named_circuit_ids(controller.devices)
+
+    assert set(circuit_ids) == set(_circuits(devices)) - set(_meter_only(devices))
+    assert await span_ebus._wait_for_circuit_names(panel, circuit_ids, 0.01) is True
+    panel.register_property_callback.assert_not_called()
+
+
+def test_unique_ids_carry_the_panel_serial_prefix() -> None:
+    serial, devices = _load_tree("synthetic-other-model.json")
+    specs = entities_from_tree(devices)
+    ids = {
+        make_unique_id(serial, s.device_id, s.capability, s.property_id) for s in specs
+    }
+    for device_id in _circuits(devices):
+        assert any(uid.startswith(f"{serial}_{device_id}_") for uid in ids)
+    assert all(uid.startswith(f"{serial}_") for uid in ids)
+

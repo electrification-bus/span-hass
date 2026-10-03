@@ -2,11 +2,13 @@
 
 This repo carries two vendored models and uses both:
 
-* ``custom_components/span_ebus/adapter_schema.json`` (``GET /api/v2/homie/schema``)
-  is the source-of-truth span-hass MODELS: every device class / capability /
-  property the SPAN ebus-panel-adapter can publish, including ones the reference
-  panels lack (EVSE) and forward-declared capabilities (``doe``). ``SEMANTICS``
-  must cover all of it (``test_adapter_schema_is_fully_mapped``).
+* The vendored schemas are the source-of-truth span-hass MODELS: every device
+  class / capability / property a SPAN Panel can publish, including ones the
+  reference panels lack (EVSE) and forward-declared capabilities (``doe``).
+  ``adapter_schema*.json`` are served schemas (``GET /api/v2/homie/schema``),
+  each from one SPAN Panel model; ``homie_schema_union_*.json`` is SPAN's
+  r202639 union across models, which no panel serves. ``SEMANTICS`` must
+  cover every file (``test_adapter_schema_is_fully_mapped``).
 
 * ``custom_components/span_ebus/spec/*.json`` (the public eBus specification) is
   the STANDARD the adapter tracks. Where the adapter schema and a spec catalog
@@ -24,25 +26,35 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from custom_components.span_ebus.semantics import SEMANTICS
 
 REPO = Path(__file__).parent.parent
 COMPONENT = REPO / "custom_components" / "span_ebus"
 SPEC = COMPONENT / "spec"
 ADAPTER_SCHEMA = COMPONENT / "adapter_schema.json"
+UNION_SCHEMA = COMPONENT / "homie_schema_union_r202639.json"
+SCHEMA_FILES = sorted(COMPONENT.glob("adapter_schema*.json")) + sorted(
+    COMPONENT.glob("homie_schema_union_*.json")
+)
 FIXTURES = REPO / "tests" / "fixtures"
 LOCKFILE = REPO / ".ebus-spec.json"
 
 
-def _device_classes() -> dict:
-    return json.loads(ADAPTER_SCHEMA.read_text())["deviceClasses"]
+def _device_classes(path: Path = ADAPTER_SCHEMA) -> dict:
+    """Return a schema file's device classes (served files use camelCase, the union snake_case)."""
+    data = json.loads(path.read_text())
+    if "deviceClasses" in data:
+        return data["deviceClasses"]
+    return data["device_classes"]
 
 
-def _schema_properties() -> set[tuple[str, str, str]]:
-    """Every (device_class, capability, property) the adapter schema declares."""
+def _schema_properties(path: Path = ADAPTER_SCHEMA) -> set[tuple[str, str, str]]:
+    """Every (device_class, capability, property) a schema file declares."""
     return {
         (device_class, capability, prop)
-        for device_class, caps in _device_classes().items()
+        for device_class, caps in _device_classes(path).items()
         for capability, props in caps.items()
         for prop in props
     }
@@ -90,13 +102,21 @@ def test_semantics_rows_are_well_formed() -> None:
         assert row.get("name"), key
 
 
-def test_adapter_schema_is_fully_mapped() -> None:
-    """Every property the adapter can publish has a SEMANTICS entry (no silent drops)."""
-    unmapped = sorted(k for k in _schema_properties() if k not in SEMANTICS)
-    assert unmapped == [], f"adapter-schema properties with no SEMANTICS entry: {unmapped}"
+def test_schema_files_are_present() -> None:
+    """Both the MAIN 32 served schema and the r202639 union are vendored."""
+    assert ADAPTER_SCHEMA in SCHEMA_FILES
+    assert UNION_SCHEMA in SCHEMA_FILES
 
 
-def test_adapter_schema_conforms_to_spec() -> None:
+@pytest.mark.parametrize("path", SCHEMA_FILES, ids=lambda p: p.name)
+def test_adapter_schema_is_fully_mapped(path: Path) -> None:
+    """Every property a SPAN Panel can publish has a SEMANTICS entry (no silent drops)."""
+    unmapped = sorted(k for k in _schema_properties(path) if k not in SEMANTICS)
+    assert unmapped == [], f"{path.name} properties with no SEMANTICS entry: {unmapped}"
+
+
+@pytest.mark.parametrize("path", SCHEMA_FILES, ids=lambda p: p.name)
+def test_adapter_schema_conforms_to_spec(path: Path) -> None:
     """Where the adapter schema and a spec catalog both define a property, they agree.
 
     Adapter-only properties are SPAN extensions and allowed; known refinements
@@ -104,7 +124,7 @@ def test_adapter_schema_conforms_to_spec() -> None:
     is an unexpected divergence worth surfacing.
     """
     divergences: list[str] = []
-    for device_class, caps in _device_classes().items():
+    for device_class, caps in _device_classes(path).items():
         for capability, props in caps.items():
             spec = _spec_catalog(capability)
             if spec is None:
@@ -117,14 +137,21 @@ def test_adapter_schema_conforms_to_spec() -> None:
                     a, s = adapter_decl.get(field), spec_decl.get(field)
                     if a and s and a != s and not _divergence_allowed(field, a, s):
                         divergences.append(f"{device_class}/{capability}/{prop}: {field} adapter={a} spec={s}")
-    assert divergences == [], "unexpected adapter<->spec divergences: " + "; ".join(divergences)
+    assert divergences == [], f"unexpected {path.name}<->spec divergences: " + "; ".join(divergences)
 
 
-def test_live_fixture_is_a_subset_of_the_adapter_schema() -> None:
-    """The captured panel fixture only carries properties the schema declares."""
-    schema = _schema_properties()
-    stray = sorted(k for k in _fixture_wire_properties("nt-2143-c1akc.json") if k not in schema)
-    assert stray == [], f"fixture properties absent from the adapter schema: {stray}"
+@pytest.mark.parametrize(
+    ("fixture", "path"),
+    [
+        ("nt-2143-c1akc.json", ADAPTER_SCHEMA),
+        ("synthetic-other-model.json", UNION_SCHEMA),
+    ],
+)
+def test_fixture_is_a_subset_of_its_schema(fixture: str, path: Path) -> None:
+    """A tree fixture only carries properties its schema declares."""
+    schema = _schema_properties(path)
+    stray = sorted(k for k in _fixture_wire_properties(fixture) if k not in schema)
+    assert stray == [], f"{fixture} properties absent from {path.name}: {stray}"
 
 
 def test_lockfile_versions_match_vendored_catalogs() -> None:

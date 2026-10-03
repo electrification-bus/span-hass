@@ -11,13 +11,14 @@ focused unit tests of the builder directives.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
-from homeassistant.const import Platform
+from homeassistant.const import EntityCategory, Platform
 import pytest
 
 from custom_components.span_ebus.node_mappers import (
@@ -28,6 +29,7 @@ from custom_components.span_ebus.node_mappers import (
     device_type_short,
     entities_from_tree,
 )
+from custom_components.span_ebus.util import make_unique_id
 
 FIXTURES = Path(__file__).parent / "fixtures" / "tree"
 
@@ -114,6 +116,17 @@ def test_total_specs_and_platform_breakdown(lc1: dict[str, Any]) -> None:
     assert plat[Platform.SWITCH] == 16  # 16 circuit relays
     # Every emitted device is one of the six known device classes.
     assert {s.device_id for s in specs} == {ROOT, LUGS_UP, LUGS_DN, BESS, MID, PV} | _circuit_ids(lc1)
+
+
+def test_main32_unique_id_set_is_unchanged(lc1: dict[str, Any]) -> None:
+    # Snapshot of the MAIN 32 fixture's unique-id set, taken before the rows
+    # for SPAN Panel models other than MAIN 32 were added. Every MAIN 32 entity
+    # stays enabled by default.
+    specs = entities_from_tree(lc1)
+    ids = sorted(make_unique_id(SERIAL, s.device_id, s.capability, s.property_id) for s in specs)
+    assert len(ids) == len(set(ids)) == 375
+    assert hashlib.sha256("\n".join(ids).encode()).hexdigest()[:16] == "828778695a1cbbc6"
+    assert all(s.enabled_default for s in specs)
 
 
 def test_enclosure_capability_counts(lc1: dict[str, Any]) -> None:
@@ -270,6 +283,144 @@ def test_downstream_lug_emits_feeds_and_literal_energy_names(lc1: dict[str, Any]
     assert conn == {"count", "feeds-device-id", "feeds-device-type", "feeds-device-status"}
     assert _find(specs, LUGS_DN, "meter", "imported-energy").name == "Imported Energy"
     assert _find(specs, LUGS_DN, "meter", "exported-energy").name == "Exported Energy"
+
+
+# ── SPAN Panel models other than MAIN 32 (synthetic fixture) ─────────────────
+
+SYN_SERIAL = "zz-0000-synth"
+SYN_ROOT = SYN_SERIAL
+SYN_LUGS_UP = f"{SYN_SERIAL}-lugs-up"
+SYN_EVSE = f"{SYN_SERIAL}-evse"
+SYN_CIRCUIT = "zz-circ-a"
+SYN_METER_ONLY = "zz-meter-a"
+
+_DIAG = EntityCategory.DIAGNOSTIC
+
+# (device, capability, property) -> (platform, name, entity_category, enabled_default)
+_OTHER_MODEL_ROWS: dict[tuple[str, str, str], tuple[Platform, str, EntityCategory | None, bool]] = {
+    (SYN_ROOT, "info", "name"): (Platform.SENSOR, "Site Name", _DIAG, True),
+    (SYN_ROOT, "info", "address-lines"): (Platform.SENSOR, "Address", _DIAG, True),
+    (SYN_ROOT, "info", "locality"): (Platform.SENSOR, "Locality", _DIAG, True),
+    (SYN_ROOT, "info", "region"): (Platform.SENSOR, "Region", _DIAG, True),
+    (SYN_ROOT, "info", "country-code"): (Platform.SENSOR, "Country Code", _DIAG, True),
+    (SYN_ROOT, "info", "latitude"): (Platform.SENSOR, "Latitude", _DIAG, True),
+    (SYN_ROOT, "info", "longitude"): (Platform.SENSOR, "Longitude", _DIAG, True),
+    (SYN_ROOT, "info", "utility-meter-serial-number"): (
+        Platform.SENSOR, "Utility Meter Serial Number", _DIAG, True
+    ),
+    (SYN_ROOT, "meter", "busbar-current"): (Platform.SENSOR, "Busbar Current", None, True),
+    (SYN_ROOT, "meter", "frequency"): (Platform.SENSOR, "Frequency", None, True),
+    (SYN_CIRCUIT, "info", "tags"): (Platform.SENSOR, "Tags", _DIAG, True),
+    (SYN_CIRCUIT, "info", "locations"): (Platform.SENSOR, "Locations", _DIAG, True),
+    (SYN_CIRCUIT, "info", "dedicated"): (Platform.BINARY_SENSOR, "Dedicated", _DIAG, True),
+    (SYN_CIRCUIT, "info", "nominal-voltage"): (Platform.SENSOR, "Nominal Voltage", _DIAG, True),
+    (SYN_CIRCUIT, "breaker", "protection-functions"): (Platform.SENSOR, "Breaker Protection", _DIAG, True),
+    (SYN_CIRCUIT, "meter", "shared-with-device-ids"): (Platform.SENSOR, "Meter Shared With", _DIAG, False),
+    (SYN_CIRCUIT, "switch", "shared-with-device-ids"): (Platform.SENSOR, "Relay Shared With", _DIAG, False),
+    (SYN_CIRCUIT, "connection", "fed-by-device-id"): (Platform.SENSOR, "Fed By Device", _DIAG, True),
+    (SYN_CIRCUIT, "connection", "fed-by-device-type"): (Platform.SENSOR, "Fed By Device Type", _DIAG, True),
+    (SYN_CIRCUIT, "connection", "fed-by-device-status"): (
+        Platform.BINARY_SENSOR, "Fed By Connection Problem", _DIAG, True
+    ),
+    (SYN_CIRCUIT, "connection", "backed-up"): (Platform.SENSOR, "Backed Up", _DIAG, True),
+    (SYN_CIRCUIT, "connection", "feeds-role"): (Platform.SENSOR, "Feeds Role", _DIAG, True),
+    (SYN_LUGS_UP, "connection", "backed-up"): (Platform.SENSOR, "Backed Up", _DIAG, True),
+    (SYN_LUGS_UP, "connection", "feeds-role"): (Platform.SENSOR, "Feeds Role", _DIAG, True),
+    (SYN_LUGS_UP, "connection", "service-rating"): (Platform.SENSOR, "Service Rating", _DIAG, True),
+    (SYN_LUGS_UP, "connection", "overcurrent-protection"): (
+        Platform.SENSOR, "Overcurrent Protection Rating", _DIAG, True
+    ),
+}
+
+
+@pytest.fixture
+def other_model() -> dict[str, Any]:
+    """Load the synthetic tree for a SPAN Panel model other than MAIN 32."""
+    return _load("synthetic-other-model.json")
+
+
+def test_other_model_properties_are_all_mapped(other_model: dict[str, Any]) -> None:
+    specs = entities_from_tree(other_model)
+    assert len(_OTHER_MODEL_ROWS) == 26
+    for (device_id, capability, property_id), (platform, name, category, enabled) in _OTHER_MODEL_ROWS.items():
+        spec = _find(specs, device_id, capability, property_id)
+        assert spec.platform == platform, (device_id, capability, property_id)
+        assert spec.name == name, (device_id, capability, property_id)
+        assert spec.entity_category == category, (device_id, capability, property_id)
+        assert spec.enabled_default is enabled, (device_id, capability, property_id)
+        assert spec.settable is False, (device_id, capability, property_id)
+
+
+def test_other_model_measurements_and_ratings(other_model: dict[str, Any]) -> None:
+    specs = entities_from_tree(other_model)
+    busbar = _find(specs, SYN_ROOT, "meter", "busbar-current")
+    assert busbar.device_class == SensorDeviceClass.CURRENT
+    assert busbar.state_class == SensorStateClass.MEASUREMENT
+    assert busbar.native_unit == "A"
+    freq = _find(specs, SYN_ROOT, "meter", "frequency")
+    assert freq.device_class == SensorDeviceClass.FREQUENCY
+    assert freq.state_class == SensorStateClass.MEASUREMENT
+    assert freq.native_unit == "Hz"
+    voltage = _find(specs, SYN_CIRCUIT, "info", "nominal-voltage")
+    assert voltage.device_class == SensorDeviceClass.VOLTAGE and voltage.native_unit == "V"
+    for prop in ("service-rating", "overcurrent-protection"):
+        rating = _find(specs, SYN_LUGS_UP, "connection", prop)
+        assert rating.device_class == SensorDeviceClass.CURRENT and rating.native_unit == "A"
+    fed_by = _find(specs, SYN_CIRCUIT, "connection", "fed-by-device-status")
+    assert fed_by.device_class == BinarySensorDeviceClass.PROBLEM
+    assert fed_by.on_values == {"LOST", "DEGRADED"}
+
+
+def test_other_model_upstream_lug_connection_rows_are_not_direction_gated(
+    other_model: dict[str, Any],
+) -> None:
+    specs = entities_from_tree(other_model)
+    conn = {s.property_id for s in specs if s.device_id == SYN_LUGS_UP and s.capability == "connection"}
+    assert conn == {
+        "count",
+        "fed-by-device-id",
+        "fed-by-device-type",
+        "fed-by-device-status",
+        "backed-up",
+        "feeds-role",
+        "service-rating",
+        "overcurrent-protection",
+    }
+    # Same rows on a downstream lug.
+    dn = {
+        "description": other_model[SYN_LUGS_UP]["description"],
+        "properties": {"info/direction": "DOWNSTREAM"},
+    }
+    dn_conn = {s.property_id for s in entities_from_tree({"lugs": dn}) if s.capability == "connection"}
+    assert {"backed-up", "feeds-role", "service-rating", "overcurrent-protection"} <= dn_conn
+    assert "fed-by-device-id" not in dn_conn
+
+
+def test_other_model_omits_absent_capabilities(other_model: dict[str, Any]) -> None:
+    specs = entities_from_tree(other_model)
+    keys = {(s.device_id, s.capability, s.property_id) for s in specs}
+    assert not any(d == SYN_ROOT and c == "breaker" for d, c, _ in keys)
+    assert not any(d == SYN_EVSE and c == "meter" for d, c, _ in keys)
+    assert (SYN_EVSE, "switch", "lock-state") in keys
+
+
+def test_other_model_meter_only_circuit_maps_its_meter(other_model: dict[str, Any]) -> None:
+    specs = [s for s in entities_from_tree(other_model) if s.device_id == SYN_METER_ONLY]
+    assert {(s.capability, s.property_id) for s in specs} == {
+        ("meter", "current"),
+        ("meter", "active-power"),
+        ("meter", "imported-energy"),
+        ("meter", "exported-energy"),
+        ("meter", "shared-with-device-ids"),
+    }
+    power = _find(specs, SYN_METER_ONLY, "meter", "active-power")
+    assert power.negate is True and power.pv_sign_aware is True
+    assert _find(specs, SYN_METER_ONLY, "meter", "shared-with-device-ids").enabled_default is False
+
+
+def test_other_model_disabled_rows_are_only_shared_with(other_model: dict[str, Any]) -> None:
+    disabled = {(s.capability, s.property_id) for s in entities_from_tree(other_model) if not s.enabled_default}
+    assert disabled == {("meter", "shared-with-device-ids"), ("switch", "shared-with-device-ids")}
 
 
 # ── _build_spec directives ───────────────────────────────────────────────────
