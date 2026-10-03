@@ -26,6 +26,14 @@ class SpanConnectionError(SpanApiError):
     """Connection to panel failed."""
 
 
+def is_pem_certificate(text: str) -> bool:
+    """Return True if ``text`` holds a PEM-encoded certificate."""
+    return (
+        "-----BEGIN CERTIFICATE-----" in text
+        and "-----END CERTIFICATE-----" in text
+    )
+
+
 @dataclass
 class StatusResponse:
     """Response from GET /api/v2/status."""
@@ -49,7 +57,8 @@ class AuthResponse:
 class SpanApiClient:
     """Async client for SPAN Panel REST API v2.
 
-    Used only during config flow for authentication and certificate retrieval.
+    Used by the config flow for authentication and certificate retrieval, and
+    at setup to download a CA certificate missing from the entry.
     Runtime data comes via MQTT/Homie (ebus-sdk Controller).
     """
 

@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components import span_ebus
 from custom_components.span_ebus import (
@@ -18,7 +23,10 @@ from custom_components.span_ebus.const import (
     CONF_EBUS_BROKER_PORT,
     CONF_EBUS_BROKER_USERNAME,
     CONF_HOST,
+    DOMAIN,
 )
+
+from .conftest import MOCK_CA_CERT, MOCK_CONFIG_DATA, MOCK_HOST
 
 
 def _mock_panel(serial: str, fed_by_id: str | None, fed_by_type: str | None) -> MagicMock:
@@ -92,10 +100,109 @@ def test_build_mqtt_cfg_falls_back_to_broker_host_without_discovered_ip() -> Non
             CONF_EBUS_BROKER_PORT: 8883,
             CONF_EBUS_BROKER_USERNAME: "u",
             CONF_EBUS_BROKER_PASSWORD: "p",
+            CONF_CA_CERT_PEM: "CA-PEM",
         }
     )
     assert cfg["host"] == "span-nt-2143-c1akc.local"
-    assert cfg["tls_insecure"] is True  # no CA
+    assert cfg["tls_insecure"] is False
+
+
+@pytest.mark.parametrize("ca", ["", None])
+def test_build_mqtt_cfg_refuses_missing_ca(ca: str | None) -> None:
+    """Without a CA the SDK would connect unverified, so no config is built."""
+    data: dict[str, Any] = {**MOCK_CONFIG_DATA, CONF_CA_CERT_PEM: ca}
+    with pytest.raises(ValueError):
+        _build_mqtt_cfg(data)
+
+
+# ── CA certificate for entries stored without one ─────────────────────────
+
+
+class _SetupStop(Exception):
+    """Raised by the fake panel to end setup once the MQTT config is captured."""
+
+
+async def _setup_with_ca_client(hass: HomeAssistant, entry, ca_client) -> list[dict[str, Any]]:
+    """Run setup with a mocked REST client, capturing the panel's MQTT config."""
+    captured: list[dict[str, Any]] = []
+
+    def fake_panel(_hass, _serial, mqtt_cfg):
+        captured.append(mqtt_cfg)
+        panel = MagicMock()
+        panel.async_start = AsyncMock(side_effect=_SetupStop)
+        return panel
+
+    with (
+        patch.object(span_ebus, "SpanApiClient", return_value=ca_client) as client_cls,
+        patch("custom_components.span_ebus.span_panel.SpanPanel", side_effect=fake_panel),
+        pytest.raises(_SetupStop),
+    ):
+        await span_ebus.async_setup_entry(hass, entry)
+    assert client_cls.call_args.args[0] == MOCK_HOST
+    return captured
+
+
+async def test_setup_downloads_and_stores_missing_ca(hass: HomeAssistant) -> None:
+    """An entry stored with an empty CA gets it from the panel before connecting."""
+    entry = MockConfigEntry(domain=DOMAIN, data={**MOCK_CONFIG_DATA, CONF_CA_CERT_PEM: ""})
+    entry.add_to_hass(hass)
+    ca_client = MagicMock()
+    ca_client.get_ca_certificate = AsyncMock(return_value=MOCK_CA_CERT)
+
+    captured = await _setup_with_ca_client(hass, entry, ca_client)
+
+    assert entry.data[CONF_CA_CERT_PEM] == MOCK_CA_CERT
+    assert captured[0]["tls_ca_data"] == MOCK_CA_CERT
+    assert captured[0]["tls_insecure"] is False
+
+
+async def test_setup_with_stored_ca_does_not_download(hass: HomeAssistant) -> None:
+    """An entry that already has its CA connects without another download."""
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG_DATA)
+    entry.add_to_hass(hass)
+    ca_client = MagicMock()
+    ca_client.get_ca_certificate = AsyncMock(return_value=MOCK_CA_CERT)
+
+    with (
+        patch.object(span_ebus, "SpanApiClient", return_value=ca_client) as client_cls,
+        patch(
+            "custom_components.span_ebus.span_panel.SpanPanel",
+            side_effect=_SetupStop,
+        ),
+        pytest.raises(_SetupStop),
+    ):
+        await span_ebus.async_setup_entry(hass, entry)
+
+    client_cls.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "download",
+    [
+        AsyncMock(side_effect=span_ebus.api_client.SpanConnectionError("down")),
+        AsyncMock(return_value=""),
+        AsyncMock(return_value="<html>not a certificate</html>"),
+    ],
+    ids=["error", "empty", "not-pem"],
+)
+async def test_setup_without_ca_is_not_ready_when_download_fails(
+    hass: HomeAssistant, download: AsyncMock
+) -> None:
+    """Setup is retried rather than connecting without certificate verification."""
+    entry = MockConfigEntry(domain=DOMAIN, data={**MOCK_CONFIG_DATA, CONF_CA_CERT_PEM: ""})
+    entry.add_to_hass(hass)
+    ca_client = MagicMock()
+    ca_client.get_ca_certificate = download
+
+    with (
+        patch.object(span_ebus, "SpanApiClient", return_value=ca_client),
+        patch("custom_components.span_ebus.span_panel.SpanPanel") as panel_cls,
+        pytest.raises(ConfigEntryNotReady),
+    ):
+        await span_ebus.async_setup_entry(hass, entry)
+
+    panel_cls.assert_not_called()
+    assert entry.data[CONF_CA_CERT_PEM] == ""
 
 
 def test_resolve_upstream_panel_returns_serial_for_distribution_enclosure() -> None:

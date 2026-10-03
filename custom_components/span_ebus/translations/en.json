@@ -28,12 +28,17 @@
         "title": "Door Bypass Authentication",
         "description": "Open your SPAN Panel door and press the door switch 3 times rapidly, then click Submit within 15 minutes.",
         "submit": "I've pressed the door switch"
+      },
+      "ca_certificate": {
+        "title": "Download CA Certificate",
+        "description": "The SPAN Panel's CA certificate is needed to verify its MQTT broker. Click Submit to try downloading it again."
       }
     },
     "error": {
       "cannot_connect": "Unable to connect to the SPAN Panel. Verify the host address.",
       "invalid_auth": "Invalid passphrase. Please try again.",
       "door_bypass_not_active": "Door bypass not active. Press the door switch 3 times and try again.",
+      "ca_unavailable": "The SPAN Panel's CA certificate could not be downloaded. Please try again.",
       "unknown": "An unexpected error occurred."
     },
     "abort": {
