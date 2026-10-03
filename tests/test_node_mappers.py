@@ -414,7 +414,9 @@ def test_other_model_meter_only_circuit_maps_its_meter(other_model: dict[str, An
         ("meter", "shared-with-device-ids"),
     }
     power = _find(specs, SYN_METER_ONLY, "meter", "active-power")
-    assert power.negate is True and power.pv_sign_aware is True
+    assert power.negate is False and power.pv_sign_aware is False
+    assert _find(specs, SYN_METER_ONLY, "meter", "imported-energy").name == "Energy"
+    assert _find(specs, SYN_METER_ONLY, "meter", "exported-energy").name == "Energy Returned"
     assert _find(specs, SYN_METER_ONLY, "meter", "shared-with-device-ids").enabled_default is False
 
 

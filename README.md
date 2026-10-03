@@ -179,7 +179,7 @@ A circuit whose name has not arrived is named `Circuit <device-id>`, using the w
 
 ### Remote Current Transformer Devices
 
-On SPAN Panel models other than MAIN 32, a remote current transformer is published as a circuit device with only a `meter` capability. It appears as a device named `<serial suffix> Remote CT` with the circuit Current, Power, Energy and Energy Returned entities (plus Meter Shared With, disabled by default) and nothing else. Power is negated as on a load circuit. Several remote current transformers on one panel share the device name, and Home Assistant adds a suffix to their entity ids.
+On SPAN Panel models other than MAIN 32, a remote current transformer is published as a circuit device with only a `meter` capability. It appears as a device named `<serial suffix> Remote CT` with Current, Power, Energy and Energy Returned entities (plus Meter Shared With, disabled by default) and nothing else. It meters like the upstream lugs: Power is positive while importing from the grid, Energy counts grid import and Energy Returned counts export. The sign follows the CT's physical orientation, so a CT installed reversed reads inverted. Several remote current transformers on one panel share the device name, and Home Assistant adds a suffix to their entity ids.
 
 ### Battery Storage (BESS) Device
 

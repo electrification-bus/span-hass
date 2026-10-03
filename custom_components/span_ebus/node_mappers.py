@@ -28,7 +28,8 @@ from homeassistant.components.sensor import SensorStateClass
 from homeassistant.const import EntityCategory, Platform
 
 from .const import DEVICE_TYPE_LUGS, HOMIE_DEVICE_TYPE_PREFIX
-from .semantics import SEMANTICS
+from .semantics import REMOTE_CT_SEMANTICS, SEMANTICS
+from .util import is_meter_only_circuit
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -206,6 +207,7 @@ def entities_from_tree(devices: dict[str, dict[str, Any]]) -> list[EntitySpec]:
             )
             continue
 
+        remote_ct = is_meter_only_circuit(description)
         lug_direction = (
             _lug_direction(device_data, device_id)
             if device_class == DEVICE_TYPE_LUGS
@@ -216,6 +218,8 @@ def entities_from_tree(devices: dict[str, dict[str, Any]]) -> list[EntitySpec]:
             properties = (node_desc or {}).get("properties") or {}
             for property_id, decl in properties.items():
                 row = SEMANTICS.get((device_class, capability, property_id))
+                if remote_ct:
+                    row = REMOTE_CT_SEMANTICS.get((capability, property_id), row)
                 if row is None:
                     _LOGGER.debug(
                         "no semantics for (%s, %s, %s) on device %s",

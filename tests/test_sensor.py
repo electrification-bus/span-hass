@@ -184,11 +184,8 @@ def test_synthetic_solar_circuit_reads_positive() -> None:
     assert sensor.native_value == 1500.0
 
 
-def test_synthetic_meter_only_circuit_is_negated() -> None:
-    """A circuit with only a meter node has no connection node, so it keeps the flip.
-
-    Pins current behavior until a live panel shows its sign frame.
-    """
+def test_synthetic_meter_only_circuit_is_not_negated() -> None:
+    """A remote current transformer meters in the enclosure frame: import positive."""
     devices, values = _synthetic_sensors()
     device_id = next(
         d
@@ -197,7 +194,7 @@ def test_synthetic_meter_only_circuit_is_negated() -> None:
     )
     sensor = _synthetic_sensor(devices, values, device_id, CAPABILITY_METER, "active-power")
     sensor._update_from_value("250.0")
-    assert sensor.native_value == -250.0
+    assert sensor.native_value == 250.0
 
 
 def test_frequency_is_numeric() -> None:

@@ -415,3 +415,18 @@ SEMANTICS[("evse", "config", "max-charge-current")] = _diag(
 FIRMWARE_GATED_NEGATE: frozenset[tuple[str, str, str]] = frozenset(
     {("bess", "meter", "active-power")}
 )
+
+
+# ── Remote current transformer ──────────────────────────────────────────────
+#
+# A circuit-class device with only a ``meter`` node is a remote current
+# transformer. It meters in the enclosure frame, like the upstream lugs:
+# ``active-power`` is positive while importing from the grid and
+# ``imported-energy`` grows on import. The circuit rows would negate it and
+# label grid import as backfeed, so these rows replace them on such a device,
+# with the upstream lugs' names.
+REMOTE_CT_SEMANTICS: dict[tuple[str, str], Row] = {
+    ("meter", "active-power"): _measure("Power", SensorDeviceClass.POWER),
+    ("meter", "imported-energy"): _total("Energy", SensorDeviceClass.ENERGY),
+    ("meter", "exported-energy"): _total("Energy Returned", SensorDeviceClass.ENERGY),
+}
