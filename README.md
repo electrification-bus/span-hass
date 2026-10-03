@@ -106,7 +106,7 @@ In the tree data model each Homie device becomes its own HA device under the pan
 | Wi-Fi SSID / Postal Code / Time Zone | Sensor | Location + network metadata (diagnostic) |
 | Cloud Connection | Sensor | Vendor cloud reachability state (diagnostic) |
 | L1 / L2 Voltage | Sensor | Line voltages (V) |
-| PV Power / Battery Power / Grid Power / Site Power | Sensor | Site-level directional power totals (W) from the panel's `power-flows` capability. Instantaneous only, with no cumulative counter, so these are dashboard readouts rather than Energy Dashboard sources. In a daisy-chain cascade every enclosure republishes the same site-level aggregate, so read them from one panel only. PV Power and Grid Power are re-signed into the same frame as the rest of the integration (generation positive, grid import positive); Site Power and Battery Power are published as the panel reports them. See [Power Sign Convention](#power-sign-convention). |
+| PV Power / Battery Power / Grid Power / Site Power | Sensor | Site-level directional power totals (W) from the panel's `power-flows` capability. Instantaneous only, with no cumulative counter, so these are dashboard readouts rather than Energy Dashboard sources. In a daisy-chain cascade every enclosure republishes the same site-level aggregate, so read them from one panel only. PV Power, Battery Power and Grid Power are re-signed into Home Assistant's frame (generation positive, battery discharge positive, grid import positive); Site Power is published as the panel reports it. See [Power Sign Convention](#power-sign-convention). |
 | PCS Enabled / PCS Active | Binary Sensor | Power Control System master flags (diagnostic) |
 | Main Breaker Rating | Sensor | Main breaker amperage (A, diagnostic) |
 | Import Limit / Feed Import Limit / Grid Import Limit / Off Grid Import Limit / Requested Import Limit | Sensor | Current-limit ceilings (A, measurement) |
@@ -232,16 +232,14 @@ Raw SPAN values: negative = consumption, positive = generation (backfeed from PV
 
 Most SPAN properties report from the **panel's perspective**: positive means power flowing into the panel across that boundary. The panel's `power-flows` capability is the documented exception. It is a derived, source-centric summary in which each value describes what the named entity is doing, so its signs run opposite to every `meter` capability: SPAN publishes `grid` positive while exporting to the utility, `pv` negative while generating, `battery` positive while charging, and `site` positive while consuming.
 
-This integration re-signs two of those four so that every power entity it creates sits in one frame:
+This integration re-signs three of those four into the frame Home Assistant's Energy Dashboard uses for power sources:
 
 | Property | SPAN publishes | This integration reports |
 |----------|----------------|--------------------------|
 | `power-flows/pv` | negative while generating | **negated**: positive while generating |
 | `power-flows/grid` | positive while exporting | **negated**: positive while importing, agreeing with the upstream lugs `Power` sensor |
 | `power-flows/site` | positive while consuming | unchanged |
-| `power-flows/battery` | positive while charging | unchanged (see below) |
-
-`power-flows/battery` is left as the panel publishes it. SPAN documents that sign as the opposite of the eBus specification and states that it may be corrected in a future firmware release, so re-signing it now would invert it a second time the day the publisher changes. The BESS device's own `meter/active-power` carries the same value and the same sign.
+| `power-flows/battery` | positive while charging | **negated**: positive while discharging |
 
 The downstream (feedthrough) lugs are a second documented deviation: `<panel>-lugs-dn` reports `active-power` positive while the panel is *delivering* power out to a sub-panel, where the panel-perspective rule would make that negative. This integration publishes both lugs boundaries unmodified, because for a per-device sensor the raw sign is the readable one (positive means power heading toward the load at either boundary). The deviation matters when summing terminals to close a power balance, which this integration does not do.
 

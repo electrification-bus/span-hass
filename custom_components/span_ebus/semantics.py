@@ -143,23 +143,19 @@ SEMANTICS: dict[tuple[str, str, str], Row] = {
     # panel's own upstream-lugs ``meter/active-power`` reports the same grid
     # flow with the opposite sign (-151 W against power-flows grid +161 W).
     #
-    # ``pv`` and ``grid`` are negated here so they land in the frame Home
-    # Assistant and the rest of this integration already use: generation
-    # positive, grid import positive. That makes "Grid Power" agree in sign
-    # with the "Power" sensor on the upstream lugs instead of contradicting it.
-    # ``site`` is already consumption-positive and needs no flip.
-    #
-    # ``battery`` is deliberately left raw. SPAN publishes it positive while
-    # charging, which is the opposite of the eBus specification, and SPAN's own
-    # documentation says the sign "may be corrected in a future release". The
-    # reference panels have never published a non-zero value (all three sit at
-    # 100% state of charge), so there is no observation to verify a flip
-    # against; negating on the strength of prose alone would silently invert
-    # again the day the publisher corrects itself.
+    # ``pv``, ``battery`` and ``grid`` are negated here so they land in the
+    # frame Home Assistant's Energy Dashboard defines for power sources:
+    # generation positive, battery discharge positive, grid import positive
+    # (homeassistant/components/energy/data.py). That also makes "Grid Power"
+    # agree in sign with the "Power" sensor on the upstream lugs instead of
+    # contradicting it. ``site`` is already consumption-positive and needs no
+    # flip.
     ("distribution-enclosure", "power-flows", "pv"): _measure(
         "PV Power", SensorDeviceClass.POWER, negate=True
     ),
-    ("distribution-enclosure", "power-flows", "battery"): _measure("Battery Power", SensorDeviceClass.POWER),
+    ("distribution-enclosure", "power-flows", "battery"): _measure(
+        "Battery Power", SensorDeviceClass.POWER, negate=True
+    ),
     ("distribution-enclosure", "power-flows", "grid"): _measure(
         "Grid Power", SensorDeviceClass.POWER, negate=True
     ),

@@ -4,6 +4,10 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Fixed
+
+- **Battery Power now reads positive while the battery discharges.** `power-flows/battery` was published as the panel reports it, positive while charging, which is the opposite of the sign Home Assistant's Energy Dashboard defines for battery power (positive discharging, negative charging). It is now negated, as `pv` and `grid` already were, so the entity can be used as a battery power source without selecting the inverted option. This rewrites the sign of values already recorded for the `Battery Power` sensor; it is an instantaneous measurement with no cumulative sum, so the effect is confined to historical charts.
+
 ## [0.4.1] — 2026-09-17
 
 ### Fixed
