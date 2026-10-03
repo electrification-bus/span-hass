@@ -183,7 +183,7 @@ Created per inverter when a PV system is commissioned.
 
 | Entity | Type | Description |
 |--------|------|-------------|
-| Vendor / Product / Serial Number / Firmware Version | Sensor | Identity. Serial may be null for SPAN G2 deployments where the cloud-shadow doesn't surface it (diagnostic) |
+| Vendor / Product / Serial Number / Firmware Version | Sensor | Identity. Serial Number may be absent (diagnostic) |
 | Nameplate Capacity | Sensor | Array capacity (W, POWER device class, diagnostic) |
 
 ### EV Charger Device
