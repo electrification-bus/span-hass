@@ -151,15 +151,13 @@ def test_power_flows_site_is_left_consumption_positive() -> None:
     assert sensor.native_value == 3329.0
 
 
-def test_power_flows_battery_is_left_raw() -> None:
-    """Publish battery unflipped until there is a sample to verify a flip against.
-
-    SPAN's battery sign contradicts the eBus specification and SPAN's own docs
-    say it may be corrected upstream.
-    """
+def test_power_flows_battery_is_positive_while_discharging() -> None:
+    """SPAN publishes battery positive while charging; HA wants discharge positive."""
     sensor = SpanEbusSensor(_FakePanel(), _power_flows_spec("battery"))
-    sensor._update_from_value("1000")  # SPAN: positive = charging
-    assert sensor.native_value == 1000
+    sensor._update_from_value("1000")   # battery charging 1000 W
+    assert sensor.native_value == -1000
+    sensor._update_from_value("-2500")  # battery discharging 2500 W
+    assert sensor.native_value == 2500
 
 
 def test_power_flows_sign_frame_matches_the_upstream_lugs_meter() -> None:
