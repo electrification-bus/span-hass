@@ -4,6 +4,10 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Fixed
+
+- **The MQTT connection is always made with certificate verification.** If the panel's CA certificate could not be downloaded at the end of the config flow, the failure was logged and the entry was created anyway with an empty CA, and every connection after that went to the broker without verifying its certificate, carrying the broker password, with nothing visible to the user. The flow now stops with an error saying the CA certificate could not be downloaded, and retries the download when the form is submitted; the credentials from registration are kept, so a retry does not register another client. A response that is empty or not a PEM certificate is treated the same as a failed download. Entries created by earlier versions with an empty CA are repaired on upgrade: setup downloads the CA from the panel and stores it in the entry before connecting, and while the panel cannot supply it, setup is retried rather than connecting unverified. No code path asks the SDK for an unverified connection anymore.
+
 ## [0.4.2] — 2026-10-03
 
 ### Fixed

@@ -14,9 +14,10 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.span_ebus.api_client import SpanAuthError, SpanConnectionError
-from custom_components.span_ebus.const import CONF_SERIAL_NUMBER, DOMAIN
+from custom_components.span_ebus.const import CONF_CA_CERT_PEM, CONF_SERIAL_NUMBER, DOMAIN
 
 from .conftest import (
+    MOCK_CA_CERT,
     MOCK_CONFIG_DATA,
     MOCK_HOST,
     MOCK_SERIAL,
@@ -80,6 +81,7 @@ async def test_user_flow_passphrase(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == f"SPAN Panel {MOCK_SERIAL}"
     assert result["data"][CONF_SERIAL_NUMBER] == MOCK_SERIAL
+    assert result["data"][CONF_CA_CERT_PEM] == MOCK_CA_CERT
 
 
 async def test_user_flow_door_bypass(
@@ -284,3 +286,45 @@ async def test_zeroconf_already_configured(
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        {"side_effect": SpanConnectionError("Cannot connect")},
+        {"return_value": ""},
+        {"return_value": "<html>not a certificate</html>"},
+    ],
+    ids=["error", "empty", "not-pem"],
+)
+async def test_ca_download_failure_is_retryable(
+    hass: HomeAssistant,
+    mock_api_client,
+    failure,
+) -> None:
+    """No entry is created without the CA; a retry succeeds without re-registering."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"host": MOCK_HOST}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "auth_passphrase"}
+    )
+
+    mock_api_client.get_ca_certificate.configure_mock(**failure)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"passphrase": "test-passphrase"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "ca_certificate"
+    assert result["errors"] == {"base": "ca_unavailable"}
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+    mock_api_client.get_ca_certificate.side_effect = None
+    mock_api_client.get_ca_certificate.return_value = MOCK_CA_CERT
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_CA_CERT_PEM] == MOCK_CA_CERT
+    assert mock_api_client.register.await_count == 1

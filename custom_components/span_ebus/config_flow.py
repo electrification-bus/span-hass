@@ -17,9 +17,11 @@ from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 import voluptuous as vol
 
 from .api_client import (
+    AuthResponse,
     SpanApiClient,
     SpanAuthError,
     SpanConnectionError,
+    is_pem_certificate,
 )
 from .const import (
     CONF_ACCESS_TOKEN,
@@ -47,6 +49,7 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
         self._serial_number: str = ""
         self._firmware_version: str = ""
         self._client: SpanApiClient | None = None
+        self._auth: AuthResponse | None = None
 
     async def _get_client(self) -> SpanApiClient:
         """Get or create the API client."""
@@ -154,7 +157,8 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during auth")
                 errors["base"] = "unknown"
             else:
-                return await self._async_finish_auth(auth)
+                self._auth = auth
+                return await self.async_step_ca_certificate()
 
         return self.async_show_form(
             step_id="auth_passphrase",
@@ -191,7 +195,8 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during door bypass auth")
                 errors["base"] = "unknown"
             else:
-                return await self._async_finish_auth(auth)
+                self._auth = auth
+                return await self.async_step_ca_certificate()
 
         return self.async_show_form(
             step_id="auth_door_bypass",
@@ -200,14 +205,31 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={"serial": self._serial_number},
         )
 
-    async def _async_finish_auth(self, auth: Any) -> ConfigFlowResult:
-        """Download CA cert and create config entry."""
+    async def async_step_ca_certificate(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Download the panel's CA certificate and create the config entry.
+
+        The broker is only ever dialed with certificate verification, so the
+        entry is not created without the CA. The credentials from registration
+        are kept in flow state, so a retry here downloads the certificate again
+        without registering another client.
+        """
+        auth = self._auth
+        assert auth is not None
         client = await self._get_client()
         try:
             ca_cert = await client.get_ca_certificate()
         except Exception:
             _LOGGER.exception("Failed to download CA certificate")
             ca_cert = ""
+
+        if not is_pem_certificate(ca_cert):
+            return self.async_show_form(
+                step_id="ca_certificate",
+                data_schema=vol.Schema({}),
+                errors={"base": "ca_unavailable"},
+            )
 
         return self.async_create_entry(
             title=f"SPAN Panel {self._serial_number}",

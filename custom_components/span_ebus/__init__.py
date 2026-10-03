@@ -14,8 +14,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_call_later
 
+from .api_client import SpanApiClient, is_pem_certificate
 from .const import (
     CIRCUIT_NAMES_TIMEOUT,
     CONF_CA_CERT_PEM,
@@ -54,19 +56,52 @@ def _build_mqtt_cfg(data: Mapping[str, Any]) -> dict[str, Any]:
     for the REST API, a literal IP never hits that resolver, and the IP is in the
     panel's certificate SAN so TLS still verifies. Falls back to the ``.local``
     broker host if no discovered IP is stored.
+
+    The broker connection carries the broker password, so it is always made
+    with certificate verification. The SDK falls back to an unverified
+    connection when it is given no CA, so a missing CA is refused here.
     """
+    ca_cert = data.get(CONF_CA_CERT_PEM)
+    if not ca_cert:
+        raise ValueError("No CA certificate stored for the MQTT broker")
     return {
         "host": data.get(CONF_HOST) or data[CONF_EBUS_BROKER_HOST],
         "port": data[CONF_EBUS_BROKER_PORT],
         "use_tls": True,
-        "tls_ca_data": data.get(CONF_CA_CERT_PEM, ""),
-        "tls_insecure": not data.get(CONF_CA_CERT_PEM),
+        "tls_ca_data": ca_cert,
+        "tls_insecure": False,
         "authentication": {
             "type": "USER_PASS",
             "username": data[CONF_EBUS_BROKER_USERNAME],
             "password": data[CONF_EBUS_BROKER_PASSWORD],
         },
     }
+
+
+async def _async_ensure_ca_cert(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Download and store the panel's CA certificate if the entry has none.
+
+    Earlier versions created the entry without a CA when the download failed
+    during the config flow. Such an entry gets its CA here, and setup is retried
+    until the download succeeds.
+    """
+    if entry.data.get(CONF_CA_CERT_PEM):
+        return
+    host = entry.data.get(CONF_HOST) or entry.data[CONF_EBUS_BROKER_HOST]
+    client = SpanApiClient(host, async_get_clientsession(hass))
+    try:
+        ca_cert = await client.get_ca_certificate()
+    except Exception as err:
+        raise ConfigEntryNotReady(
+            f"Cannot download CA certificate from SPAN Panel at {host}: {err}"
+        ) from err
+    if not is_pem_certificate(ca_cert):
+        raise ConfigEntryNotReady(
+            f"SPAN Panel at {host} returned no CA certificate"
+        )
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, CONF_CA_CERT_PEM: ca_cert}
+    )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -88,6 +123,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     serial_number = entry.data[CONF_SERIAL_NUMBER]
 
+    await _async_ensure_ca_cert(hass, entry)
     mqtt_cfg = _build_mqtt_cfg(entry.data)
 
     panel = SpanPanel(hass, serial_number, mqtt_cfg)
