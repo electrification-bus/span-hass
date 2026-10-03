@@ -419,8 +419,9 @@ FIRMWARE_GATED_NEGATE: frozenset[tuple[str, str, str]] = frozenset(
 
 # ── Remote current transformer ──────────────────────────────────────────────
 #
-# A circuit-class device with only a ``meter`` node is a remote current
-# transformer. It meters in the enclosure frame, like the upstream lugs:
+# A circuit-class device that does not declare ``info/spaces`` measures a
+# conductor outside the panel, such as a remote current transformer on the
+# service (``util.is_off_panel_circuit``). It meters in the enclosure frame, like the upstream lugs:
 # ``active-power`` is positive while importing from the grid and
 # ``imported-energy`` grows on import. The circuit rows would negate it and
 # label grid import as backfeed, so these rows replace them on such a device,

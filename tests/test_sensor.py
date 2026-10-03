@@ -15,6 +15,7 @@ import pytest
 from custom_components.span_ebus.const import CAPABILITY_CONNECTION, CAPABILITY_METER
 from custom_components.span_ebus.node_mappers import EntitySpec, entities_from_tree
 from custom_components.span_ebus.sensor import SpanEbusSensor
+from custom_components.span_ebus.util import is_off_panel_circuit
 
 
 class _FakePanel:
@@ -184,13 +185,13 @@ def test_synthetic_solar_circuit_reads_positive() -> None:
     assert sensor.native_value == 1500.0
 
 
-def test_synthetic_meter_only_circuit_is_not_negated() -> None:
+def test_synthetic_off_panel_circuit_is_not_negated() -> None:
     """A remote current transformer meters in the enclosure frame: import positive."""
     devices, values = _synthetic_sensors()
     device_id = next(
         d
         for d, data in devices.items()
-        if set(data["description"]["nodes"]) == {CAPABILITY_METER}
+        if is_off_panel_circuit(data["description"])
     )
     sensor = _synthetic_sensor(devices, values, device_id, CAPABILITY_METER, "active-power")
     sensor._update_from_value("250.0")

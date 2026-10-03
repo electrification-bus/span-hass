@@ -40,7 +40,7 @@ from .const import (
 from .util import (
     DEVICE_TYPE_LABELS,
     descendant_device_info,
-    is_meter_only_circuit,
+    is_off_panel_circuit,
     panel_device_info,
     parent_identifier,
 )
@@ -631,15 +631,15 @@ async def _wait_for_tree_discovery(
 def _named_circuit_ids(devices: Mapping[str, Any]) -> list[str]:
     """Return the circuit-class devices expected to publish ``info/name``.
 
-    A meter-only circuit (a remote current transformer) publishes no name, so
-    waiting on it would only ever end in the timeout.
+    A circuit outside the panel (a remote current transformer) publishes no
+    name, so waiting on it would only ever end in the timeout.
     """
     circuit_type = f"energy.ebus.device.{DEVICE_TYPE_CIRCUIT}"
     return [
         device_id
         for device_id, dev in list(devices.items())
         if (dev.description or {}).get("type") == circuit_type
-        and not is_meter_only_circuit(dev.description)
+        and not is_off_panel_circuit(dev.description)
     ]
 
 
@@ -751,8 +751,8 @@ def _stamp_device_presentation(
 
     Mappers can't reach across devices, so the per-entity HA presentation
     fields are stamped here at the integration layer. Circuit names come from
-    the circuit's own ``info/name``; a meter-only circuit and other descendants
-    get a generated label.
+    the circuit's own ``info/name``; a circuit outside the panel without one, and
+    other descendants, get a generated label.
     """
     from .node_mappers import device_type_short  # noqa: PLC0415
 
@@ -769,8 +769,9 @@ def _stamp_device_presentation(
             spec.device_name = ""  # panel device handled separately
             continue
 
-        if is_meter_only_circuit(dev.description):
-            spec.device_name = f"{short_serial} {REMOTE_CT_LABEL}"
+        if is_off_panel_circuit(dev.description):
+            label = panel.get_property_value(spec.device_id, "info", "name")
+            spec.device_name = label or f"{short_serial} {REMOTE_CT_LABEL}"
         elif dtype == DEVICE_TYPE_CIRCUIT:
             label = panel.get_property_value(spec.device_id, "info", "name")
             spec.device_name = label or f"Circuit {spec.device_id}"

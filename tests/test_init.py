@@ -29,7 +29,7 @@ from custom_components.span_ebus.const import (
     REMOTE_CT_LABEL,
 )
 from custom_components.span_ebus.node_mappers import entities_from_tree
-from custom_components.span_ebus.util import is_meter_only_circuit, make_unique_id
+from custom_components.span_ebus.util import is_off_panel_circuit, make_unique_id
 
 from .conftest import MOCK_CA_CERT, MOCK_CONFIG_DATA, MOCK_HOST
 
@@ -802,7 +802,7 @@ def test_every_integration_module_imports() -> None:
     importlib.import_module("custom_components.span_ebus")
 
 
-# ── Meter-only circuits and device names ──────────────────────────────────
+# ── Circuits outside the panel and device names ──────────────────────────────────
 
 _TREE_FIXTURES = Path(__file__).parent / "fixtures" / "tree"
 
@@ -847,11 +847,12 @@ def _circuits(devices: dict[str, Any]) -> list[str]:
     ]
 
 
-def _meter_only(devices: dict[str, Any]) -> list[str]:
+def _off_panel(devices: dict[str, Any]) -> list[str]:
     return [
         device_id
         for device_id in _circuits(devices)
-        if set(devices[device_id]["description"]["nodes"]) == {"meter"}
+        if "spaces"
+        not in devices[device_id]["description"]["nodes"].get("info", {}).get("properties", {})
     ]
 
 
@@ -859,37 +860,37 @@ def _unnamed_full_circuits(devices: dict[str, Any]) -> list[str]:
     return [
         device_id
         for device_id in _circuits(devices)
-        if device_id not in _meter_only(devices)
+        if device_id not in _off_panel(devices)
         and devices[device_id]["properties"].get("info/name") is None
     ]
 
 
-def test_is_meter_only_circuit_matches_only_the_meter_only_device() -> None:
-    """True for the circuit with only a meter node; false for an unnamed full circuit."""
+def test_is_off_panel_circuit_matches_only_the_off_panel_device() -> None:
+    """True for the circuit that declares no info/spaces; false for an unnamed branch circuit."""
     _, devices = _load_tree("synthetic-other-model.json")
-    meter_only = _meter_only(devices)
+    off_panel = _off_panel(devices)
     unnamed = _unnamed_full_circuits(devices)
-    assert len(meter_only) == 1 and len(unnamed) == 1
+    assert len(off_panel) == 1 and len(unnamed) == 1
 
     matched = [
         device_id
         for device_id, dev in devices.items()
-        if is_meter_only_circuit(dev["description"])
+        if is_off_panel_circuit(dev["description"])
     ]
-    assert matched == meter_only
-    assert not is_meter_only_circuit(devices[unnamed[0]]["description"])
-    assert not is_meter_only_circuit(None)
-    # A non-circuit device with only a meter node is not a meter-only circuit.
-    assert not is_meter_only_circuit(
+    assert matched == off_panel
+    assert not is_off_panel_circuit(devices[unnamed[0]]["description"])
+    assert not is_off_panel_circuit(None)
+    # A non-circuit device without info/spaces is not a circuit outside the panel.
+    assert not is_off_panel_circuit(
         {"type": "energy.ebus.device.lugs", "nodes": {"meter": {}}}
     )
 
 
-def test_main32_fixture_has_no_meter_only_circuit() -> None:
+def test_main32_fixture_has_no_off_panel_circuit() -> None:
     """Every MAIN 32 circuit still takes part in the name wait."""
     serial, devices = _load_tree("nt-2143-c1akc.json")
     controller, _ = _fixture_controller_and_panel(serial, devices)
-    assert _meter_only(devices) == []
+    assert _off_panel(devices) == []
     assert span_ebus._named_circuit_ids(controller.devices) == _circuits(devices)
 
 
@@ -902,7 +903,7 @@ def test_stamp_names_remote_ct_and_falls_back_to_the_whole_device_id() -> None:
 
     names = {spec.device_id: spec.device_name for spec in specs}
     short_serial = serial.rsplit("-", 1)[-1]
-    (remote_ct,) = _meter_only(devices)
+    (remote_ct,) = _off_panel(devices)
     (unnamed,) = _unnamed_full_circuits(devices)
     assert names[remote_ct] == f"{short_serial} {REMOTE_CT_LABEL}"
     assert names[unnamed] == f"Circuit {unnamed}"
@@ -934,7 +935,7 @@ async def test_name_wait_skips_the_remote_ct() -> None:
 
     circuit_ids = span_ebus._named_circuit_ids(controller.devices)
 
-    assert set(circuit_ids) == set(_circuits(devices)) - set(_meter_only(devices))
+    assert set(circuit_ids) == set(_circuits(devices)) - set(_off_panel(devices))
     assert await span_ebus._wait_for_circuit_names(panel, circuit_ids, 0.01) is True
     panel.register_property_callback.assert_not_called()
 
@@ -949,3 +950,17 @@ def test_unique_ids_carry_the_panel_serial_prefix() -> None:
         assert any(uid.startswith(f"{serial}_{device_id}_") for uid in ids)
     assert all(uid.startswith(f"{serial}_") for uid in ids)
 
+
+def test_is_off_panel_circuit_keys_on_the_spaces_declaration() -> None:
+    """A circuit is outside the panel when it does not declare info/spaces, whatever else it has."""
+    circuit = "energy.ebus.device.circuit"
+    named_ct = {
+        "type": circuit,
+        "nodes": {"info": {"properties": {"name": {}}}, "meter": {}},
+    }
+    branch = {
+        "type": circuit,
+        "nodes": {"info": {"properties": {"name": {}, "spaces": {}}}, "meter": {}},
+    }
+    assert is_off_panel_circuit(named_ct)
+    assert not is_off_panel_circuit(branch)

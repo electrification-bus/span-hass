@@ -9,7 +9,7 @@ from typing import Any
 from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import (
-    CAPABILITY_METER,
+    CAPABILITY_INFO,
     DEVICE_TYPE_BESS,
     DEVICE_TYPE_CIRCUIT,
     DEVICE_TYPE_DISTRIBUTION_ENCLOSURE,
@@ -35,16 +35,20 @@ DEVICE_TYPE_LABELS = {
 }
 
 
-def is_meter_only_circuit(description: Mapping[str, Any] | None) -> bool:
-    """Whether a ``$description`` is a circuit-class device with only a ``meter`` node.
+def is_off_panel_circuit(description: Mapping[str, Any] | None) -> bool:
+    """Whether a ``$description`` is a circuit that measures a conductor outside the panel.
 
-    Such a device (a remote current transformer) publishes no ``info/name``.
-    Decided from the description alone.
+    A circuit-class device that does not declare ``info/spaces`` occupies no
+    breaker position: it measures a conductor outside the panel, such as a
+    remote current transformer on the service. Decided by the declaration, not
+    the value, so a branch circuit whose spaces have not arrived yet is still a
+    branch circuit.
     """
     desc = description or {}
     if desc.get("type") != f"{HOMIE_DEVICE_TYPE_PREFIX}{DEVICE_TYPE_CIRCUIT}":
         return False
-    return set(desc.get("nodes") or {}) == {CAPABILITY_METER}
+    info = (desc.get("nodes") or {}).get(CAPABILITY_INFO) or {}
+    return "spaces" not in (info.get("properties") or {})
 
 
 # First release whose BESS ``meter/active-power`` is positive while discharging

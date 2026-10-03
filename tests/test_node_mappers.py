@@ -292,7 +292,7 @@ SYN_ROOT = SYN_SERIAL
 SYN_LUGS_UP = f"{SYN_SERIAL}-lugs-up"
 SYN_EVSE = f"{SYN_SERIAL}-evse"
 SYN_CIRCUIT = "zz-circ-a"
-SYN_METER_ONLY = "zz-meter-a"
+SYN_OFF_PANEL = "zz-meter-a"
 
 _DIAG = EntityCategory.DIAGNOSTIC
 
@@ -404,8 +404,8 @@ def test_other_model_omits_absent_capabilities(other_model: dict[str, Any]) -> N
     assert (SYN_EVSE, "switch", "lock-state") in keys
 
 
-def test_other_model_meter_only_circuit_maps_its_meter(other_model: dict[str, Any]) -> None:
-    specs = [s for s in entities_from_tree(other_model) if s.device_id == SYN_METER_ONLY]
+def test_other_model_off_panel_circuit_maps_its_meter(other_model: dict[str, Any]) -> None:
+    specs = [s for s in entities_from_tree(other_model) if s.device_id == SYN_OFF_PANEL]
     assert {(s.capability, s.property_id) for s in specs} == {
         ("meter", "current"),
         ("meter", "active-power"),
@@ -413,11 +413,11 @@ def test_other_model_meter_only_circuit_maps_its_meter(other_model: dict[str, An
         ("meter", "exported-energy"),
         ("meter", "shared-with-device-ids"),
     }
-    power = _find(specs, SYN_METER_ONLY, "meter", "active-power")
+    power = _find(specs, SYN_OFF_PANEL, "meter", "active-power")
     assert power.negate is False and power.pv_sign_aware is False
-    assert _find(specs, SYN_METER_ONLY, "meter", "imported-energy").name == "Energy"
-    assert _find(specs, SYN_METER_ONLY, "meter", "exported-energy").name == "Energy Returned"
-    assert _find(specs, SYN_METER_ONLY, "meter", "shared-with-device-ids").enabled_default is False
+    assert _find(specs, SYN_OFF_PANEL, "meter", "imported-energy").name == "Energy"
+    assert _find(specs, SYN_OFF_PANEL, "meter", "exported-energy").name == "Energy Returned"
+    assert _find(specs, SYN_OFF_PANEL, "meter", "shared-with-device-ids").enabled_default is False
 
 
 def test_other_model_disabled_rows_are_only_shared_with(other_model: dict[str, Any]) -> None:
