@@ -21,6 +21,7 @@ from .api_client import (
     SpanApiClient,
     SpanAuthError,
     SpanConnectionError,
+    SpanNotReadyError,
     is_pem_certificate,
 )
 from .const import (
@@ -36,6 +37,9 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# The 422 ``detail`` the panel sends when it cannot read its own passphrase.
+_PASSPHRASE_UNAVAILABLE = "Dashboard password is not available"
 
 
 class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -146,17 +150,10 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle passphrase authentication."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            client = await self._get_client()
-            try:
-                auth = await client.register(passphrase=user_input["passphrase"])
-            except SpanAuthError:
-                errors["base"] = "invalid_auth"
-            except SpanConnectionError:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected error during auth")
-                errors["base"] = "unknown"
-            else:
+            auth, errors = await self._async_register(
+                user_input["passphrase"], "invalid_auth"
+            )
+            if auth is not None:
                 self._auth = auth
                 return await self.async_step_ca_certificate()
 
@@ -184,17 +181,8 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
         """
         errors: dict[str, str] = {}
         if user_input is not None:
-            client = await self._get_client()
-            try:
-                auth = await client.register(passphrase=None)
-            except SpanAuthError:
-                errors["base"] = "door_bypass_not_active"
-            except SpanConnectionError:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected error during door bypass auth")
-                errors["base"] = "unknown"
-            else:
+            auth, errors = await self._async_register(None, "door_bypass_not_active")
+            if auth is not None:
                 self._auth = auth
                 return await self.async_step_ca_certificate()
 
@@ -204,6 +192,34 @@ class SpanEbusConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={"serial": self._serial_number},
         )
+
+    async def _async_register(
+        self, passphrase: str | None, auth_error: str
+    ) -> tuple[AuthResponse | None, dict[str, str]]:
+        """Register with the panel.
+
+        Returns (auth, errors); auth is None exactly when errors is non-empty.
+        ``auth_error`` is the error key for this step's own rejection (a wrong
+        passphrase, or no active door bypass).
+        """
+        client = await self._get_client()
+        try:
+            auth = await client.register(passphrase=passphrase)
+        except SpanAuthError as err:
+            if err.detail == _PASSPHRASE_UNAVAILABLE:
+                return None, {"base": "broker_password_unavailable"}
+            return None, {"base": auth_error}
+        except SpanNotReadyError:
+            return None, {"base": "not_ready"}
+        except SpanConnectionError:
+            return None, {"base": "cannot_connect"}
+        except Exception:
+            _LOGGER.exception("Unexpected error during registration")
+            return None, {"base": "unknown"}
+
+        if not auth.ebus_broker_password:
+            return None, {"base": "broker_password_unavailable"}
+        return auth, {}
 
     async def async_step_ca_certificate(
         self, user_input: dict[str, Any] | None = None

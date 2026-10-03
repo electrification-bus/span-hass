@@ -19,11 +19,14 @@ from homeassistant.util.unit_conversion import EnergyConverter
 
 from .const import (
     CAPABILITY_CONNECTION,
+    CAPABILITY_INFO,
     COUNTER_DECREASE_DEADBAND_WH,
     DEVICE_TYPE_PV,
 )
 from .entity_base import SpanEbusEntity, async_setup_platform_entities
 from .node_mappers import EntitySpec, device_type_short
+from .semantics import FIRMWARE_GATED_NEGATE
+from .util import bess_power_is_charge_positive
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,6 +84,12 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
         # active-power sign flip permanently (see ``_should_negate``).
         self._feeds_pv = False
 
+        self._firmware_gated = (
+            spec.device_type,
+            spec.capability,
+            spec.property_id,
+        ) in FIRMWARE_GATED_NEGATE
+
     def _should_negate(self) -> bool:
         """Whether to flip the sign of this update's value.
 
@@ -92,7 +101,18 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
         retained sibling property that may not have arrived when the entity was
         built, so re-check until detected, then cache (it does not change at
         runtime).
+
+        A ``FIRMWARE_GATED_NEGATE`` sensor is negated only while the panel runs
+        a release that publishes it with the opposite sign.
         """
+        if self._firmware_gated:
+            # The firmware version is on the panel root, whose device id is
+            # the serial. Read live so an upgrade switches the sign.
+            return bess_power_is_charge_positive(
+                self._panel.get_property_value(
+                    self._panel.serial_number, CAPABILITY_INFO, "firmware-version"
+                )
+            )
         if not self._spec.negate:
             return False
         if not self._spec.pv_sign_aware:
@@ -135,6 +155,9 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
                 return
             if self._should_negate():
                 numeric = -numeric
+            # Report zero as 0, not -0: the panel publishes "-0.0" for an idle
+            # flow, and negating 0.0 yields -0.0 as well.
+            numeric += 0.0
             prev = self._last_numeric
             if (
                 self._attr_state_class == SensorStateClass.TOTAL_INCREASING

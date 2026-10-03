@@ -243,6 +243,9 @@ SEMANTICS: dict[tuple[str, str, str], Row] = {
     ("bess", "info", "nameplate-capacity"): _diag(
         "Nameplate Capacity", device_class=SensorDeviceClass.ENERGY_STORAGE
     ),
+    # Positive while discharging, Home Assistant's battery convention. Older
+    # firmware reports it positive while charging; see
+    # FIRMWARE_GATED_NEGATE below.
     ("bess", "meter", "active-power"): _measure("Power", SensorDeviceClass.POWER),
     ("bess", "soc", "soc"): _measure("State of Charge", SensorDeviceClass.BATTERY),
     ("bess", "soc", "soe"): _measure("State of Energy", SensorDeviceClass.ENERGY_STORAGE),
@@ -350,4 +353,16 @@ SEMANTICS[("evse", "config", "user-max-charge-current")] = _diag(
 )
 SEMANTICS[("evse", "config", "max-charge-current")] = _diag(
     "Max Charge Current", device_class=SensorDeviceClass.CURRENT
+)
+
+
+# ── Firmware-gated sign flips ───────────────────────────────────────────────
+#
+# Properties whose sign convention changed in a firmware release. The sensor
+# negates them while the panel's ``info/firmware-version`` names an older
+# release, re-checking on every update so an upgrade takes effect without a
+# reload. BESS ``meter/active-power`` became discharge-positive in r202639
+# (``util.bess_power_is_charge_positive``).
+FIRMWARE_GATED_NEGATE: frozenset[tuple[str, str, str]] = frozenset(
+    {("bess", "meter", "active-power")}
 )

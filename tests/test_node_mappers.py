@@ -38,6 +38,8 @@ LUGS_DN = f"{SERIAL}-lugs-dn"
 BESS = f"{SERIAL}-tg121153003k7g"
 MID = f"{BESS}-mid"
 PV = f"{SERIAL}-iq7plus-72-x-us"
+LOAD_CIRCUIT = "ac3dccda46a94b98878a227df6fed588"  # "Ovens"
+PV_CIRCUIT = "a9942a48e45f484b92a58adc27e78a60"  # feeds the PV device
 
 
 def _load(name: str) -> dict[str, Any]:
@@ -49,7 +51,7 @@ def _load(name: str) -> dict[str, Any]:
 
 @pytest.fixture
 def lc1() -> dict[str, Any]:
-    """Load the lc1 panel snapshot (22 devices, firmware dcj/260720/2244)."""
+    """Load the lc1 panel snapshot (22 devices, firmware spanos3/r202639/02)."""
     return _load("nt-2143-c1akc.json")
 
 
@@ -158,7 +160,7 @@ def test_every_circuit_has_the_full_capability_surface(lc1: dict[str, Any]) -> N
 
 def test_circuit_load_shed_is_a_writable_select_with_options_from_format(lc1: dict[str, Any]) -> None:
     specs = entities_from_tree(lc1)
-    cid = next(iter(_circuit_ids(lc1)))
+    cid = LOAD_CIRCUIT
     spec = _find(specs, cid, "load-shed", "priority")
     assert spec.platform == Platform.SELECT
     assert spec.name == "Shed Priority"
@@ -168,13 +170,26 @@ def test_circuit_load_shed_is_a_writable_select_with_options_from_format(lc1: di
 
 def test_circuit_switch_relay_is_a_settable_switch(lc1: dict[str, Any]) -> None:
     specs = entities_from_tree(lc1)
-    cid = next(iter(_circuit_ids(lc1)))
+    cid = LOAD_CIRCUIT
     relay = _find(specs, cid, "switch", "relay")
     assert relay.platform == Platform.SWITCH
     assert relay.settable is True
     # relay-controllable moved onto the switch node (was on the legacy priority node).
     ctrl = _find(specs, cid, "switch", "relay-controllable")
     assert ctrl.platform == Platform.BINARY_SENSOR
+
+
+def test_pv_circuit_relay_and_shed_priority_are_read_only(lc1: dict[str, Any]) -> None:
+    # The panel omits $settable on the PV circuit's relay and shed priority, so
+    # the entities keep their platforms but are not writable.
+    specs = entities_from_tree(lc1)
+    assert lc1[PV_CIRCUIT]["properties"]["connection/feeds-device-id"] == PV
+    relay = _find(specs, PV_CIRCUIT, "switch", "relay")
+    assert relay.platform == Platform.SWITCH
+    assert relay.settable is False
+    priority = _find(specs, PV_CIRCUIT, "load-shed", "priority")
+    assert priority.platform == Platform.SELECT
+    assert priority.settable is False
 
 
 def test_circuit_meter_power_keeps_negate_and_pv_sign_aware(lc1: dict[str, Any]) -> None:
@@ -186,14 +201,14 @@ def test_circuit_meter_power_keeps_negate_and_pv_sign_aware(lc1: dict[str, Any])
         assert power.negate is True
         assert power.pv_sign_aware is True
     # Panel-perspective energy naming preserved.
-    cid = next(iter(_circuit_ids(lc1)))
+    cid = LOAD_CIRCUIT
     assert _find(specs, cid, "meter", "exported-energy").name == "Energy"
     assert _find(specs, cid, "meter", "imported-energy").name == "Energy Returned"
 
 
 def test_circuit_breaker_ratings(lc1: dict[str, Any]) -> None:
     specs = entities_from_tree(lc1)
-    cid = next(iter(_circuit_ids(lc1)))
+    cid = LOAD_CIRCUIT
     rating = _find(specs, cid, "breaker", "rating")
     assert rating.device_class == SensorDeviceClass.CURRENT
     assert rating.native_unit == "A"

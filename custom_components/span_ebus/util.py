@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import (
@@ -27,6 +29,34 @@ DEVICE_TYPE_LABELS = {
     DEVICE_TYPE_EVSE: "EV Charger",
     DEVICE_TYPE_CIRCUIT: "Circuit",
 }
+
+
+# First release whose BESS ``meter/active-power`` is positive while discharging
+# (earlier releases report it positive while charging). Compared against the
+# ``rYYYYWW`` token of the panel's ``info/firmware-version``, e.g.
+# ``spanos3/r202639/02``; the trailing ``/NN`` build number is ignored.
+BESS_DISCHARGE_POSITIVE_RELEASE = 202639
+
+_RELEASE_TOKEN = re.compile(r"(?:^|/)r(\d{6})(?:/|$)")
+
+
+def firmware_release(firmware_version: str | None) -> int | None:
+    """Return the ``YYYYWW`` release number in a firmware-version string.
+
+    None when the string carries no ``rYYYYWW`` token (a development build,
+    or no value yet).
+    """
+    match = _RELEASE_TOKEN.search(firmware_version or "")
+    return int(match.group(1)) if match else None
+
+
+def bess_power_is_charge_positive(firmware_version: str | None) -> bool:
+    """Whether firmware reports BESS ``meter/active-power`` positive while charging.
+
+    An unrecognized version is treated as current, so it is left unflipped.
+    """
+    release = firmware_release(firmware_version)
+    return release is not None and release < BESS_DISCHARGE_POSITIVE_RELEASE
 
 
 def panel_device_info(serial_number: str, firmware_version: str = "") -> DeviceInfo:
