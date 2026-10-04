@@ -181,7 +181,12 @@ Initial alpha release of the SPAN Panel (eBus) Home Assistant custom integration
 - The SPAN import/export energy direction convention (circuit `exported-energy` = consumption, upstream `imported-energy` = grid consumption) is not documented in the SPAN API and was reverse-engineered. See `README.md` §"Energy Flows and Import/Export" and the energy-counter monotonicity docs in [`docs/`](docs/).
 - After installing the integration for the first time, HA may need to be restarted **twice** before mDNS discovery picks up panels — a known limitation of how HA loads zeroconf service types for custom integrations on first install.
 
-[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.2
+[0.4.1]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.1
+[0.4.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.0
+[0.3.1]: https://github.com/electrification-bus/span-hass/releases/tag/v0.3.1
+[0.3.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.3.0
 [0.2.1]: https://github.com/electrification-bus/span-hass/releases/tag/v0.2.1
 [0.2.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.2.0
 [0.1.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.1.0
