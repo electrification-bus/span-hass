@@ -59,8 +59,9 @@ jobs:
             echo "::error::CHANGELOG date for [$VER] is '${CL_DATE:-none}', expected today (UTC) '$TODAY'. Fix the date on main and move the tag."
             exit 1
           fi
-          # Body = lines between this heading and the next "## [" heading.
-          REL=$(tail -n +$((START + 1)) CHANGELOG.md | grep -nE '^## \[' | head -1 | cut -d: -f1 || true)
+          # Body = lines between this heading and the next "## [" heading, or
+          # the link-reference block that ends the file ("[x]: url").
+          REL=$(tail -n +$((START + 1)) CHANGELOG.md | grep -nE '^(## \[|\[[^]]+\]: )' | head -1 | cut -d: -f1 || true)
           if [ -n "${REL:-}" ]; then
             # REL is 1-based within the tail, so the next heading sits at file
             # line START+REL; the body is everything up to the line before it.
