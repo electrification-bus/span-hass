@@ -19,7 +19,16 @@ class SpanApiError(Exception):
 
 
 class SpanAuthError(SpanApiError):
-    """Authentication failed."""
+    """Authentication failed.
+
+    ``detail`` is the panel's own message when its 422 body carries one as a
+    string, and None otherwise.
+    """
+
+    def __init__(self, message: str, detail: str | None = None) -> None:
+        """Initialize with an optional panel-supplied detail message."""
+        super().__init__(message)
+        self.detail = detail
 
 
 class SpanConnectionError(SpanApiError):
@@ -32,6 +41,8 @@ def is_pem_certificate(text: str) -> bool:
         "-----BEGIN CERTIFICATE-----" in text
         and "-----END CERTIFICATE-----" in text
     )
+class SpanNotReadyError(SpanApiError):
+    """Panel is not ready to register clients yet (HTTP 503); retry shortly."""
 
 
 @dataclass
@@ -40,6 +51,8 @@ class StatusResponse:
 
     serial_number: str
     firmware_version: str
+    # Absent on firmware before r202639.
+    hardware_version: str | None = None
 
 
 @dataclass
@@ -49,7 +62,8 @@ class AuthResponse:
     access_token: str
     serial_number: str
     ebus_broker_username: str
-    ebus_broker_password: str
+    # None when the panel cannot read its passphrase (r202639 and later).
+    ebus_broker_password: str | None
     ebus_broker_host: str
     ebus_broker_mqtts_port: int
 
@@ -110,24 +124,36 @@ class SpanApiClient:
                         "Registration denied. Ensure door bypass is active or passphrase is correct."
                     )
                 if resp.status == 422:
-                    detail = ""
-                    try:
-                        body = await resp.json()
-                        detail = body.get("detail", "")
-                    except Exception:
-                        pass
-                    raise SpanAuthError(detail or "Authentication rejected")
+                    detail = await self._error_detail(resp)
+                    raise SpanAuthError(detail or "Authentication rejected", detail)
+                if resp.status == 503:
+                    detail = await self._error_detail(resp)
+                    raise SpanNotReadyError(detail or "Panel is not ready yet")
                 resp.raise_for_status()
                 return await resp.json()
-        except (SpanAuthError, SpanConnectionError):
+        except SpanApiError:
             raise
         except aiohttp.ClientConnectorError as err:
             raise SpanConnectionError(f"Cannot connect to {self._host}") from err
         except aiohttp.ClientResponseError as err:
             raise SpanApiError(f"API error: {err.status} {err.message}") from err
 
+    @staticmethod
+    async def _error_detail(resp: aiohttp.ClientResponse) -> str | None:
+        """Return the string ``detail`` of an error body, or None.
+
+        The panel sends ``{"detail": "<message>"}``. A missing or unparsable
+        body, or a ``detail`` that is not a non-empty string, yields None.
+        """
+        try:
+            body = await resp.json(content_type=None)
+        except Exception:
+            return None
+        detail = body.get("detail") if isinstance(body, dict) else None
+        return detail if isinstance(detail, str) and detail else None
+
     async def get_status(self) -> StatusResponse:
-        """Get panel serial number and firmware version.
+        """Get panel serial number, firmware version, and hardware version.
 
         GET /api/v2/status — no authentication required.
         """
@@ -135,6 +161,7 @@ class SpanApiClient:
         return StatusResponse(
             serial_number=data["serialNumber"],
             firmware_version=data["firmwareVersion"],
+            hardware_version=data.get("hardwareVersion"),
         )
 
     async def register(
@@ -159,7 +186,7 @@ class SpanApiClient:
             access_token=data["accessToken"],
             serial_number=data["serialNumber"],
             ebus_broker_username=data["ebusBrokerUsername"],
-            ebus_broker_password=data["ebusBrokerPassword"],
+            ebus_broker_password=data.get("ebusBrokerPassword"),
             ebus_broker_host=data["ebusBrokerHost"],
             ebus_broker_mqtts_port=data["ebusBrokerMqttsPort"],
         )

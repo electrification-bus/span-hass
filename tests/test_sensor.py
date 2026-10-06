@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import Platform, UnitOfEnergy, UnitOfPower
@@ -160,6 +161,15 @@ def test_power_flows_battery_is_positive_while_discharging() -> None:
     assert sensor.native_value == 2500
 
 
+@pytest.mark.parametrize("raw", ["0.0", "-0.0"])
+def test_zero_is_reported_without_a_sign(raw: str) -> None:
+    """An idle flow reads 0, not -0, whether or not the value is negated."""
+    for prop in ("battery", "site"):
+        sensor = SpanEbusSensor(_FakePanel(), _power_flows_spec(prop))
+        sensor._update_from_value(raw)
+        assert math.copysign(1.0, sensor.native_value) == 1.0
+
+
 def test_power_flows_sign_frame_matches_the_upstream_lugs_meter() -> None:
     """The two entities reporting the same grid flow must not contradict each other.
 
@@ -185,6 +195,96 @@ def test_power_flows_sign_frame_matches_the_upstream_lugs_meter() -> None:
     grid._update_from_value("161")
 
     assert lugs.native_value < 0 and grid.native_value < 0
+
+
+# ── BESS power firmware gate ──────────────────────────────────────────────
+
+
+def _bess_power_spec() -> EntitySpec:
+    """Build the BESS meter/active-power spec the way SEMANTICS declares it."""
+    from custom_components.span_ebus.semantics import SEMANTICS
+
+    row = SEMANTICS[("bess", CAPABILITY_METER, "active-power")]
+    return EntitySpec(
+        device_id="nt-0000-test1-bess",
+        capability=CAPABILITY_METER,
+        property_id="active-power",
+        platform=Platform.SENSOR,
+        name=row["name"],
+        device_class=row["device_class"],
+        state_class=row["state_class"],
+        native_unit=UnitOfPower.WATT,
+        negate=bool(row.get("negate")),
+        device_type="bess",
+    )
+
+
+def _panel_on(firmware: str | None) -> _FakePanel:
+    props = {}
+    if firmware is not None:
+        props[("nt-0000-test1", "info", "firmware-version")] = firmware
+    return _FakePanel(props)
+
+
+@pytest.mark.parametrize(
+    "firmware", ["spanos2/r202633/01", "spanos3/r202633/02", "spanos3/r202638/07"]
+)
+def test_bess_power_is_negated_before_r202639(firmware: str) -> None:
+    """Older firmware reports charging positive; HA wants discharging positive."""
+    sensor = SpanEbusSensor(_panel_on(firmware), _bess_power_spec())
+    sensor._update_from_value("1000")   # charging 1000 W
+    assert sensor.native_value == -1000
+
+
+@pytest.mark.parametrize(
+    "firmware",
+    [
+        "spanos3/r202639/02",
+        "spanos3/r202639/05",
+        "spanos3/r202701/01",
+        "local-build",
+        "",
+        None,
+    ],
+)
+def test_bess_power_is_raw_from_r202639_or_unrecognized(firmware: str | None) -> None:
+    """r202639 and later already report discharging positive; so does an unparsed version."""
+    sensor = SpanEbusSensor(_panel_on(firmware), _bess_power_spec())
+    sensor._update_from_value("2500")   # discharging 2500 W
+    assert sensor.native_value == 2500
+
+
+def test_bess_power_follows_a_firmware_upgrade_without_reload() -> None:
+    props = {("nt-0000-test1", "info", "firmware-version"): "spanos3/r202633/02"}
+    sensor = SpanEbusSensor(_FakePanel(props), _bess_power_spec())
+    sensor._update_from_value("1000")
+    assert sensor.native_value == -1000
+
+    props[("nt-0000-test1", "info", "firmware-version")] = "spanos3/r202639/02"
+    sensor._update_from_value("-1000")
+    assert sensor.native_value == -1000
+
+
+@pytest.mark.parametrize(
+    ("firmware", "expected"),
+    [
+        ("spanos3/r202639/02", 202639),
+        ("spanos2/r202633/01", 202633),
+        ("r202701", 202701),
+        ("r202639/02", 202639),
+        ("local-build", None),
+        ("spanos3/xr202639/02", None),
+        ("spanos3/r2026390/02", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_firmware_release_parses_only_the_release_token(
+    firmware: str | None, expected: int | None
+) -> None:
+    from custom_components.span_ebus.util import firmware_release
+
+    assert firmware_release(firmware) == expected
 
 
 # ── Energy counter decrease deadband ──────────────────────────────────────

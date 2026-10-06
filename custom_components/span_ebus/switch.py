@@ -79,10 +79,10 @@ class SpanEbusSwitch(SpanEbusEntity, SwitchEntity):
         Three cases, in order. A reported ``relay-controllable`` value is the
         panel's own live answer and wins outright. A publisher that declares the
         capability but has not yet delivered its value gets a refusal, not a
-        fallback: the fallback is the relay's build-time ``$settable``, and the
-        adapter's class-level schema declares the relay settable unconditionally,
-        so falling through there would let a command out on a locked circuit
-        during the window before the retained value lands. Only a publisher that
+        fallback: the fallback is the relay's build-time ``$settable``, which
+        some firmware declares on every circuit relay, locked or not, so falling
+        through there would let a command out on a locked circuit during the
+        window before the retained value lands. Only a publisher that
         does not implement the capability at all (it is SHOULD-level in the spec)
         falls back to ``$settable``.
         """

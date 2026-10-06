@@ -147,6 +147,26 @@ class SpanPanel:
             return False
         return property_id in node.get("properties", {})
 
+    def is_property_settable(
+        self, device_id: str, capability: str, property_id: str
+    ) -> bool:
+        """Whether the device's current ``$description`` declares this property settable.
+
+        Read live rather than from the entity's build-time spec, because the
+        panel republishes a circuit's ``$description`` when it is re-commissioned
+        and an existing entity is never rebuilt.
+        """
+        if self._controller is None:
+            return False
+        device = self._controller.devices.get(device_id)
+        if device is None or not device.description:
+            return False
+        node = device.description.get("nodes", {}).get(capability)
+        if not isinstance(node, dict):
+            return False
+        prop = node.get("properties", {}).get(property_id)
+        return isinstance(prop, dict) and bool(prop.get("settable", False))
+
     def set_property(
         self, device_id: str, capability: str, property_id: str, value: str
     ) -> bool:

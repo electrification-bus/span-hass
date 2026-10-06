@@ -4,9 +4,21 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-06
+
+Support for SPAN firmware r202639 on MAIN 32 panels. Panels on r202633 keep working.
+
 ### Fixed
 
 - **The MQTT connection is always made with certificate verification.** If the panel's CA certificate could not be downloaded at the end of the config flow, the failure was logged and the entry was created anyway with an empty CA, and every connection after that went to the broker without verifying its certificate, carrying the broker password, with nothing visible to the user. The flow now stops with an error saying the CA certificate could not be downloaded, and retries the download when the form is submitted; the credentials from registration are kept, so a retry does not register another client. A response that is empty or not a PEM certificate is treated the same as a failed download. Entries created by earlier versions with an empty CA are repaired on upgrade: setup downloads the CA from the panel and stores it in the entry before connecting, and while the panel cannot supply it, setup is retried rather than connecting unverified. No code path asks the SDK for an unverified connection anymore.
+- **The BESS device's Power sensor now reads positive while the battery discharges, on every firmware.** SPAN firmware r202639 reverses the sign of the BESS `meter/active-power` property: it is now positive while discharging, matching Home Assistant; older firmware publishes it positive while charging. The integration reads the panel's `info/firmware-version` and negates the value only on a release older than r202639, so the sensor keeps one sign across the upgrade instead of inverting at it. The version is re-read on every update, so a firmware upgrade takes effect without reloading the integration. A version string with no `rYYYYWW` release token is treated as current and left unflipped. On older firmware, values recorded before the update keep the old sign, so historical charts show a step at the update; the sensor is an instantaneous measurement with no cumulative sum, so no Energy Dashboard total is affected.
+- **Panel registration copes with the r202639 responses.** In the r202639 `POST /api/v2/auth/register` response, `ebusBrokerPassword` is `null` when the panel passphrase is unavailable. A `null` password was stored as is, creating a config entry with no broker password, and a response omitting the field failed with an unknown error; both now show a "broker password unavailable" error, ask the user to retry, and create no config entry. A 503 (the panel's serial number is not available yet) showed an unknown error and now shows a retryable "not ready" error. A 422 `Dashboard password is not available` shows the same "broker password unavailable" error rather than "invalid passphrase"; every other rejection keeps the existing invalid-passphrase or door-bypass error.
+- **A Shed Priority select refuses a change the panel does not accept.** Writes were sent for every select regardless of the property's `$settable`. On r202639 the circuits the panel adds for a commissioned PV or battery system publish `load-shed/priority` without `$settable`, and a change to one is now refused with a `ServiceValidationError` naming the entity rather than putting a command on the wire. The gate is read from the circuit's current `$description`, so re-commissioning a circuit takes effect without reloading the integration. The select is still created and still shows the current priority. On r202633 every circuit's priority is settable, so nothing changes there.
+- **An idle power sensor reads 0 rather than -0.** Negating a zero reading gave `-0.0`, which Home Assistant displays as "-0.0"; this showed on Battery Power, which 0.4.2 began negating, whenever the battery was idle. The panel also publishes `"-0.0"` for an idle flow. Every numeric sensor now reports zero without a sign.
+
+### Changed
+
+- **With SPAN firmware r202639, a site with two or more PV inverters gets one PV device per inverter.** Earlier firmware publishes a single PV device; r202639 publishes every commissioned inverter as its own device, and on a site with more than one it changes every PV device id, including the one published before. After the upgrade the previous PV device is retired once the 15-minute grace period for a dropped device expires, and a new PV device appears for each inverter. These devices carry identity and nameplate entities only, and the history of the old device's entities is not carried over to the new ones. A site with one inverter keeps its existing device id and is unaffected.
 
 ## [0.4.2] — 2026-10-03
 
@@ -181,7 +193,8 @@ Initial alpha release of the SPAN Panel (eBus) Home Assistant custom integration
 - The SPAN import/export energy direction convention (circuit `exported-energy` = consumption, upstream `imported-energy` = grid consumption) is not documented in the SPAN API and was reverse-engineered. See `README.md` §"Energy Flows and Import/Export" and the energy-counter monotonicity docs in [`docs/`](docs/).
 - After installing the integration for the first time, HA may need to be restarted **twice** before mDNS discovery picks up panels — a known limitation of how HA loads zeroconf service types for custom integrations on first install.
 
-[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.5.0
 [0.4.2]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.2
 [0.4.1]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.1
 [0.4.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.0

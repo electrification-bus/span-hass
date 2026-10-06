@@ -39,6 +39,8 @@
       "invalid_auth": "Invalid passphrase. Please try again.",
       "door_bypass_not_active": "Door bypass not active. Press the door switch 3 times and try again.",
       "ca_unavailable": "The SPAN Panel's CA certificate could not be downloaded. Please try again.",
+      "not_ready": "The SPAN Panel is not ready to register clients yet. Wait a minute and try again.",
+      "broker_password_unavailable": "The SPAN Panel cannot read its passphrase right now, so it cannot provide its MQTT broker password. Wait a minute and try again.",
       "unknown": "An unexpected error occurred."
     },
     "abort": {
@@ -49,6 +51,9 @@
   "exceptions": {
     "relay_not_controllable": {
       "message": "{entity_id} cannot be switched. The SPAN Panel does not report this circuit's relay as controllable, which is how a circuit commissioned as permanently on or permanently off is published, and the panel will not act on a relay command."
+    },
+    "option_not_settable": {
+      "message": "{entity_id} is read-only. The SPAN Panel does not accept a change to this setting on this circuit."
     }
   }
 }

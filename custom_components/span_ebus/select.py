@@ -9,8 +9,10 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import DOMAIN
 from .entity_base import SpanEbusEntity, async_setup_platform_entities
 from .node_mappers import EntitySpec
 
@@ -29,7 +31,15 @@ async def async_setup_entry(
 
 
 class SpanEbusSelect(SpanEbusEntity, SelectEntity):
-    """A select entity for a SPAN settable enum (shed-priority etc.)."""
+    """A select entity for a SPAN enum (shed-priority etc.).
+
+    Whether the property takes writes is per device: a circuit the panel manages
+    itself publishes its priority without ``$settable``. The entity is created
+    either way so the value still shows, and a write to a property the
+    device's current description does not declare settable is refused. The
+    gate is read live, so re-commissioning a circuit takes effect without
+    reloading the integration.
+    """
 
     def __init__(self, panel: Any, spec: EntitySpec) -> None:
         """Initialize the select."""
@@ -51,6 +61,21 @@ class SpanEbusSelect(SpanEbusEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         """Send the selected option to the panel."""
+        if not self._panel.is_property_settable(
+            self._device_id, self._capability, self._property_id
+        ):
+            entity_id = self.entity_id or str(self._attr_unique_id)
+            _LOGGER.debug(
+                "Refusing option for %s: the panel does not declare it settable",
+                entity_id,
+            )
+            raise ServiceValidationError(
+                f"{entity_id} is read-only. The SPAN Panel does not accept a "
+                "change to this setting on this circuit.",
+                translation_domain=DOMAIN,
+                translation_key="option_not_settable",
+                translation_placeholders={"entity_id": entity_id},
+            )
         self._panel.set_property(
             self._device_id, self._capability, self._property_id, option
         )
