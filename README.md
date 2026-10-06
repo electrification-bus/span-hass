@@ -8,7 +8,7 @@ A custom [Home Assistant](https://www.home-assistant.io/) integration for [SPAN]
 
 `span_ebus` uses **local push** over MQTT — the panel streams real-time updates directly to Home Assistant with no cloud dependency and no polling interval. Every circuit power change, relay toggle, and energy accumulation arrives instantly via the panel's built-in MQTT broker.
 
-> **Active alpha.** The author runs this integration against three SPAN panels in a daisy-chain cascade in their own home. v0.4.0 (2026-09-15) tracks the current SPAN ebus-panel-adapter wire (the parent/child Homie 5 data model), verified against released firmware `spanos3/r202633/02` and since against `spanos3/r202639/02`; the entity structure is generated from the panel's live `$description` rather than hard-coded, so it follows the adapter as it evolves. If you adopt it you're an early user. Please report any issues on the [GitHub issue tracker](https://github.com/electrification-bus/span-hass/issues).
+> **Active alpha.** The author runs this integration against three SPAN panels in a daisy-chain cascade in their own home. v0.5.0 (2026-10-06) tracks the current SPAN ebus-panel-adapter wire (the parent/child Homie 5 data model), verified against released firmware `spanos3/r202639/02` and `spanos3/r202633/02`; the entity structure is generated from the panel's live `$description` rather than hard-coded, so it follows the adapter as it evolves. If you adopt it you're an early user. Please report any issues on the [GitHub issue tracker](https://github.com/electrification-bus/span-hass/issues).
 
 ## Choosing a SPAN integration
 

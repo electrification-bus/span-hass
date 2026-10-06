@@ -4,6 +4,10 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-06
+
+Support for SPAN firmware r202639 on MAIN 32 panels. Panels on r202633 keep working.
+
 ### Fixed
 
 - **The MQTT connection is always made with certificate verification.** If the panel's CA certificate could not be downloaded at the end of the config flow, the failure was logged and the entry was created anyway with an empty CA, and every connection after that went to the broker without verifying its certificate, carrying the broker password, with nothing visible to the user. The flow now stops with an error saying the CA certificate could not be downloaded, and retries the download when the form is submitted; the credentials from registration are kept, so a retry does not register another client. A response that is empty or not a PEM certificate is treated the same as a failed download. Entries created by earlier versions with an empty CA are repaired on upgrade: setup downloads the CA from the panel and stores it in the entry before connecting, and while the panel cannot supply it, setup is retried rather than connecting unverified. No code path asks the SDK for an unverified connection anymore.
@@ -189,7 +193,8 @@ Initial alpha release of the SPAN Panel (eBus) Home Assistant custom integration
 - The SPAN import/export energy direction convention (circuit `exported-energy` = consumption, upstream `imported-energy` = grid consumption) is not documented in the SPAN API and was reverse-engineered. See `README.md` §"Energy Flows and Import/Export" and the energy-counter monotonicity docs in [`docs/`](docs/).
 - After installing the integration for the first time, HA may need to be restarted **twice** before mDNS discovery picks up panels — a known limitation of how HA loads zeroconf service types for custom integrations on first install.
 
-[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.5.0
 [0.4.2]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.2
 [0.4.1]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.1
 [0.4.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.0
