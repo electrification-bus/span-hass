@@ -4,6 +4,10 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.6.0b1] — 2026-10-12
+
+Beta: support for SPAN Panel models other than MAIN 32 on firmware r202639, built from SPAN's r202639 schema and not yet run against a panel of another model.
+
 ### Fixed
 
 - **Setup reports a rate-limited registration instead of an unknown error.** A panel answering `POST /api/v2/auth/register` with 429 showed "An unexpected error occurred" and logged a traceback. It now shows a "limiting registration requests" error, which asks the user to wait a minute and try again, and logs no traceback.
@@ -213,7 +217,8 @@ Initial alpha release of the SPAN Panel (eBus) Home Assistant custom integration
 - The SPAN import/export energy direction convention (circuit `exported-energy` = consumption, upstream `imported-energy` = grid consumption) is not documented in the SPAN API and was reverse-engineered. See `README.md` §"Energy Flows and Import/Export" and the energy-counter monotonicity docs in [`docs/`](docs/).
 - After installing the integration for the first time, HA may need to be restarted **twice** before mDNS discovery picks up panels — a known limitation of how HA loads zeroconf service types for custom integrations on first install.
 
-[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.6.0b1...HEAD
+[0.6.0b1]: https://github.com/electrification-bus/span-hass/releases/tag/v0.6.0b1
 [0.5.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.5.0
 [0.4.2]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.2
 [0.4.1]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.1
