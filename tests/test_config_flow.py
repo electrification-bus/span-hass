@@ -18,6 +18,7 @@ from custom_components.span_ebus.api_client import (
     SpanAuthError,
     SpanConnectionError,
     SpanNotReadyError,
+    SpanRateLimitError,
 )
 from custom_components.span_ebus.const import CONF_CA_CERT_PEM, CONF_SERIAL_NUMBER, DOMAIN
 
@@ -432,6 +433,73 @@ async def test_ca_download_failure_is_retryable(
     assert mock_api_client.register.await_count == 1
 
 
+async def test_other_model_goes_straight_to_passphrase(
+    hass: HomeAssistant,
+    mock_api_client,
+    mock_status_response,
+) -> None:
+    """Hardware version 3.0 skips the menu; the passphrase form shows the panel."""
+    mock_status_response.hardware_version = "3.0"
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"host": MOCK_HOST}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "auth_passphrase"
+    assert result["description_placeholders"]["serial"] == MOCK_SERIAL
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"passphrase": "test"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert mock_api_client.register.call_args.kwargs == {"passphrase": "test"}
+
+
+@pytest.mark.parametrize("hardware_version", ["1.2", "2.0", None, "UNKNOWN"])
+async def test_menu_shown_unless_other_model(
+    hass: HomeAssistant,
+    mock_api_client,
+    mock_status_response,
+    hardware_version: str | None,
+) -> None:
+    """MAIN 32, firmware before r202639 and an unknown hardware version keep the menu."""
+    mock_status_response.hardware_version = hardware_version
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"host": MOCK_HOST}
+    )
+    assert result["type"] is FlowResultType.MENU
+    assert result["menu_options"] == ["auth_passphrase", "auth_door_bypass"]
+
+
+@pytest.mark.parametrize("step", ["auth_passphrase", "auth_door_bypass"])
+async def test_register_rate_limited(
+    hass: HomeAssistant,
+    mock_api_client,
+    step: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A 429 from register is a retryable rate-limit error, logged without a traceback."""
+    result = await _start_auth(hass, step)
+    mock_api_client.register.side_effect = SpanRateLimitError("Rate limit exceeded")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _SUBMIT[step]
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "rate_limited"}
+    assert not any(r.exc_info for r in caplog.records)
+
+    mock_api_client.register.side_effect = None
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _SUBMIT[step]
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
 # --- REST client parsing, against both firmware response shapes ---
 
 _BASE = f"http://{MOCK_HOST}/api/v2"
@@ -552,3 +620,34 @@ async def test_register_503_not_ready(api, aioclient_mock) -> None:
     )
     with pytest.raises(SpanNotReadyError):
         await api.register()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"error": "Too many requests"}, {"detail": "Rate limit exceeded"}],
+    ids=["error", "detail"],
+)
+async def test_register_429_rate_limited(api, aioclient_mock, body) -> None:
+    """A 429 carries its message in either an error or a detail field."""
+    aioclient_mock.post(_REGISTER, status=429, json=body)
+    with pytest.raises(SpanRateLimitError) as exc:
+        await api.register()
+    assert str(exc.value) == next(iter(body.values()))
+
+
+@pytest.mark.parametrize(
+    ("hardware_version", "expected"),
+    [("3.0", True), ("1.2", False), ("2.0", False), (None, False), ("UNKNOWN", None)],
+)
+async def test_status_is_other_model(
+    api, aioclient_mock, hardware_version: str | None, expected: bool | None
+) -> None:
+    """Hardware version 3.0 marks a SPAN Panel model other than MAIN 32."""
+    body = {"serialNumber": MOCK_SERIAL, "firmwareVersion": "spanos2/r202639/02",
+            "proximityProven": False}
+    if hardware_version is not None:
+        body["hardwareVersion"] = hardware_version
+    aioclient_mock.get(f"{_BASE}/status", json=body, headers=_JSON)
+    status = await api.get_status()
+    assert status.is_other_model is expected
+    assert status.proximity_proven is False

@@ -43,6 +43,7 @@ class SpanEbusEntity(Entity):
             panel.serial_number, spec.device_id, spec.capability, spec.property_id
         )
         self._attr_name = spec.name
+        self._attr_entity_registry_enabled_default = spec.enabled_default
 
         self._attr_device_info = _device_info_for_spec(panel, spec)
 

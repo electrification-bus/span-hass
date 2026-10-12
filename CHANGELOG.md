@@ -4,6 +4,30 @@ All notable changes to `span-hass` are recorded here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.6.0b1] — 2026-10-12
+
+Beta: support for SPAN Panel models other than MAIN 32 on firmware r202639, built from SPAN's r202639 schema and not yet run against a panel of another model.
+
+### Fixed
+
+- **Setup reports a rate-limited registration instead of an unknown error.** A panel answering `POST /api/v2/auth/register` with 429 showed "An unexpected error occurred" and logged a traceback. It now shows a "limiting registration requests" error, which asks the user to wait a minute and try again, and logs no traceback.
+
+### Changed
+
+- **The passphrase form shows the panel's serial number and firmware version.** This applies to every model, including MAIN 32.
+- **A circuit with no name is named after its whole device id.** The fallback name for a circuit whose `info/name` has not arrived was `Circuit` plus the first six characters of its device id, which is not unique on every model. It is now `Circuit <device-id>`. An existing device still showing the old fallback name is renamed on the next tree walk; its entity ids do not change. A circuit that publishes a name is unaffected.
+
+### Added
+
+- **Support for SPAN Panel models other than MAIN 32 on firmware r202639.** Built from SPAN's r202639 schema, which is now vendored as `homie_schema_union_r202639.json` and checked by the coverage test alongside the MAIN 32 schema; it has not yet been run against a panel of another model. The MAIN 32 entity set on r202633 and r202639 is unchanged.
+  - **Passphrase-only setup.** Door bypass is not available on these models as of r202639, so a panel reporting hardware version `3.0` goes straight to the passphrase form. MAIN 32, firmware older than r202639 and a panel reporting an unknown hardware version keep the choice of passphrase or door bypass.
+  - **New entities**, all read-only. Panel: Site Name, Address, Locality, Region, Country Code, Latitude, Longitude and Utility Meter Serial Number (diagnostic), Busbar Current and Frequency. Circuit: Tags, Locations, Dedicated, Nominal Voltage, Breaker Protection, Fed By Device, Fed By Device Type, Fed By Connection Problem, Backed Up and Feeds Role. Lugs: Backed Up, Feeds Role, Service Rating and Overcurrent Protection Rating. Each appears only where the panel's `$description` declares the property, so MAIN 32 gains none of them.
+  - **Disabled by default:** the circuit Meter Shared With and Relay Shared With sensors, whose values are other circuits' device ids.
+  - **Remote current transformers.** A circuit device that declares no `info/spaces` measures a conductor outside the panel, such as a remote current transformer. Unless it publishes `info/name`, it is named `<serial suffix> Remote CT` and is not waited on for a circuit name during setup. It meters like the upstream lugs, not like a circuit: Power is positive while importing from the grid, Energy counts grid import and Energy Returned counts export.
+  - **Solar circuit sign.** These models publish no PV device; a circuit whose `connection/feeds-role` is `SOLAR` now reports generation as positive Power, as a circuit feeding a PV device already did. Every other role keeps the load sign.
+  - **Entities that stay unknown.** On a panel with neither a battery system nor solar, PV Power and Battery Power have no value, and Requested Import Limit has no value on these models.
+  - **EVSE Lock State** is settable on these models but stays a read-only sensor, so MAIN 32 owners keep their existing entity.
+
 ## [0.5.0] — 2026-10-06
 
 Support for SPAN firmware r202639 on MAIN 32 panels. Panels on r202633 keep working.
@@ -193,7 +217,8 @@ Initial alpha release of the SPAN Panel (eBus) Home Assistant custom integration
 - The SPAN import/export energy direction convention (circuit `exported-energy` = consumption, upstream `imported-energy` = grid consumption) is not documented in the SPAN API and was reverse-engineered. See `README.md` §"Energy Flows and Import/Export" and the energy-counter monotonicity docs in [`docs/`](docs/).
 - After installing the integration for the first time, HA may need to be restarted **twice** before mDNS discovery picks up panels — a known limitation of how HA loads zeroconf service types for custom integrations on first install.
 
-[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/electrification-bus/span-hass/compare/v0.6.0b1...HEAD
+[0.6.0b1]: https://github.com/electrification-bus/span-hass/releases/tag/v0.6.0b1
 [0.5.0]: https://github.com/electrification-bus/span-hass/releases/tag/v0.5.0
 [0.4.2]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.2
 [0.4.1]: https://github.com/electrification-bus/span-hass/releases/tag/v0.4.1
