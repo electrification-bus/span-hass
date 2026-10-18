@@ -43,10 +43,8 @@ Two community Home Assistant integrations exist for SPAN panels:
 ### HACS (recommended)
 
 1. Open HACS in your Home Assistant instance
-2. Go to Integrations > three-dot menu > **Custom repositories**
-3. Enter `https://github.com/electrification-bus/span-hass` and select category **Integration**
-4. Click **Add**, then find and install **SPAN Panel (eBus)**
-5. **Restart Home Assistant**
+2. Search for **SPAN Panel (eBus)** and install it
+3. **Restart Home Assistant**
 
 ### Manual
 
