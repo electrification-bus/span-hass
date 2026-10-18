@@ -46,7 +46,7 @@ Pull requests are welcome.
 
 ## Releases
 
-This integration is distributed via [HACS](https://hacs.xyz/) as a custom repository and tagged on GitHub. A maintainer bumps the version in `custom_components/span_ebus/manifest.json` + `pyproject.toml`, moves the `[Unreleased]` section of `CHANGELOG.md` under a new `[X.Y.Z] — YYYY-MM-DD` heading, and pushes a `vX.Y.Z` tag. HACS picks up tagged releases automatically; users on HACS see the update notification in the HA UI.
+This integration is distributed via the [HACS](https://hacs.xyz/) default catalog and tagged on GitHub. A maintainer bumps the version in `custom_components/span_ebus/manifest.json` + `pyproject.toml`, moves the `[Unreleased]` section of `CHANGELOG.md` under a new `[X.Y.Z] — YYYY-MM-DD` heading, and pushes a `vX.Y.Z` tag. HACS picks up tagged releases automatically; users on HACS see the update notification in the HA UI.
 
 ## Code of conduct
 
