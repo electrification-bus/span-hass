@@ -15,7 +15,7 @@ A custom [Home Assistant](https://www.home-assistant.io/) integration for [SPAN]
 Two community Home Assistant integrations exist for SPAN panels:
 
 - **[SpanPanel/span](https://github.com/SpanPanel/span)** — the established and most widely-adopted SPAN integration. Available in HACS, broad community support, several years of production use across many homes. **This is the right choice for most users.**
-- **`electrification-bus/span-hass`** (this integration) — **experimental**. Uses the SPAN local eBus MQTT API (the Homie 5 parent/child tree publication documented at [SPAN-API-Client-Docs](https://github.com/spanio/SPAN-API-Client-Docs)). Supports SPAN firmware r202639, and r202633 still works.
+- **`electrification-bus/span-hass`** (this integration) — **experimental**. Uses the SPAN local eBus MQTT API (the Homie 5 parent/child tree publication documented at [SPAN-API-Client-Docs](https://github.com/spanio/SPAN-API-Client-Docs)). Supports SPAN firmware r202639 on MAIN 32 and on SPAN Panel models other than MAIN 32, and r202633 still works on MAIN 32.
 
 ## Features
 
@@ -35,6 +35,7 @@ Two community Home Assistant integrations exist for SPAN panels:
 ## Requirements
 
 - SPAN Panel **MAIN 32**, running firmware **r202639** (supported) or **r202633** (still works): r202633 is the release that publishes the parent/child Homie 5 tree data model. The entity structure is read from the panel's live `$description`, so the integration follows the adapter's published schema. Firmware older than r202633 publishes a flat data model this integration does not read.
+- SPAN Panel models other than MAIN 32, running firmware **r202639** or later. Support for these models is built from SPAN's r202639 schema and has not yet been run against a panel of another model.
 - Home Assistant 2026.8 or later (the floor `hacs.json` declares, and what CI tests against)
 - The panel must be reachable on the local network
 
@@ -68,6 +69,10 @@ During setup you will be prompted to authenticate with one of two methods:
 - **Passphrase** — Enter the HOP passphrase for your SPAN Panel
 - **Door bypass** — Open the panel door and press the door switch 3 times rapidly, then submit the form within 15 minutes
 
+As of firmware r202639, door bypass is not available on SPAN Panel models other than MAIN 32 (hardware version `3.0`), so setup goes straight to the passphrase form. Every other panel, including one that does not report its hardware version, is offered both methods.
+
+If the panel is limiting registration requests, setup shows a "limiting registration requests" error; wait a minute and submit again.
+
 The config flow shows your panel's serial number and firmware version during authentication so you can confirm you're connecting to the right panel.
 
 **Tip:** The [SPAN-API-Client-Docs](https://github.com/spanio/SPAN-API-Client-Docs) repository provides command-line tools that can help you prepare credentials:
@@ -83,7 +88,7 @@ span-auth              # Authenticate and save credentials to ~/.span-auth.json
 2. It downloads the panel's CA certificate for TLS verification
 3. An MQTT connection is established to the panel's built-in broker
 4. The panel's `$description` (Homie schema) arrives, declaring all nodes and properties
-5. The integration waits for the device to reach `ready` state and for circuit names to arrive
+5. The integration waits for the device to reach `ready` state and for circuit names to arrive (a remote current transformer publishes no name and is not waited for)
 6. Entity specs are generated from the description, and devices/entities are registered in HA
 
 If the panel doesn't respond within 30 seconds, setup is retried automatically (HA's `ConfigEntryNotReady` mechanism).
@@ -102,11 +107,13 @@ In the tree data model each Homie device becomes its own HA device under the pan
 | Main Relay | Binary Sensor | Whether the main relay is closed (= passing grid power) |
 | Ethernet / Wi-Fi | Binary Sensor | Network connectivity status (diagnostic) |
 | Wi-Fi SSID / Postal Code / Time Zone | Sensor | Location + network metadata (diagnostic) |
+| Site Name / Address / Locality / Region / Country Code / Latitude / Longitude / Utility Meter Serial Number | Sensor | Site identity and location as recorded on the panel (diagnostic). Published by SPAN Panel models other than MAIN 32. |
 | Cloud Connection | Sensor | Vendor cloud reachability state (diagnostic) |
 | L1 / L2 Voltage | Sensor | Line voltages (V) |
+| Busbar Current / Frequency | Sensor | Estimated busbar current (A) and line frequency (Hz). Published by SPAN Panel models other than MAIN 32. |
 | PV Power / Battery Power / Grid Power / Site Power | Sensor | Site-level directional power totals (W) from the panel's `power-flows` capability. Instantaneous only, with no cumulative counter, so PV, Battery and Grid Power can serve as Energy Dashboard power sensors but not as energy sources. In a daisy-chain cascade every enclosure republishes the same site-level aggregate, so read them from one panel only. PV Power, Battery Power and Grid Power are re-signed into Home Assistant's frame (generation positive, battery discharge positive, grid import positive); Site Power is published as the panel reports it. See [Power Sign Convention](#power-sign-convention). |
 | PCS Enabled / PCS Active | Binary Sensor | Power Control System master flags (diagnostic) |
-| Main Breaker Rating | Sensor | Main breaker amperage (A, diagnostic) |
+| Main Breaker Rating | Sensor | Main breaker amperage (A, diagnostic). Absent when the panel reports no main breaker rating. |
 | Import Limit / Feed Import Limit / Grid Import Limit / Off Grid Import Limit / Requested Import Limit | Sensor | Current-limit ceilings (A, measurement) |
 | (Limit)-Enablement | Sensor | Enum: UNSPECIFIED / UNCONFIGURED / DISABLED / ENABLED (diagnostic) |
 | (Limit)-Active | Binary Sensor | Whether each limit is currently being applied (diagnostic) |
@@ -129,6 +136,8 @@ In the tree data model each Homie device becomes its own HA device under the pan
 | Fed By Device / Feeds Device | Sensor | Homie device-id pointing at the upstream / downstream peer (diagnostic) |
 | Fed By Device Type / Feeds Device Type | Sensor | The peer's device-class string (diagnostic) |
 | Upstream / Downstream Connection Problem | Binary Sensor | PROBLEM class — on when the peer's status is LOST or DEGRADED |
+| Backed Up / Feeds Role | Sensor | Whether the downstream path is on the backup side of a microgrid interconnect device, and the role of what it feeds (diagnostic). Published by SPAN Panel models other than MAIN 32. |
+| Service Rating / Overcurrent Protection Rating | Sensor | Utility service rating and overcurrent-protection rating (A, diagnostic). Published by SPAN Panel models other than MAIN 32. |
 
 Energy-name asymmetry: upstream lugs use friendly "Energy" / "Energy Returned"; downstream lugs use literal "Imported Energy" / "Exported Energy" since SPAN doesn't populate the downstream side today and the semantic flips between directions.
 
@@ -147,11 +156,28 @@ For each circuit on your SPAN Panel:
 | Energy | Sensor | Cumulative energy consumed (Wh, `total_increasing`). The dominant counter for load circuits. |
 | Energy Returned | Sensor | Cumulative energy returned/backfed (Wh, `total_increasing`). Near zero except on PV-feeding circuits. |
 | Relay | Switch | Circuit breaker relay (on = closed, off = open). Writes are gated on the circuit's own `switch/relay-controllable`, falling back to the relay's `$settable` from the device `$description` only when the panel does not publish that capability at all. A circuit the panel has commissioned as locked (permanently on, or permanently off) still reports its relay state, but a turn-on or turn-off is refused with an error rather than putting a command on the wire. The gate is re-read live, so re-commissioning a circuit takes effect without reloading the integration. |
-| Relay Requester | Sensor | Enum showing who last commanded the relay (USER / LOAD_SHED / PCS / CONFIGURATION / FAULT / NONE / UNKNOWN, diagnostic) |
+| Relay Requester | Sensor | Enum showing who last commanded the relay (USER / LOAD_SHED / PCS / CONFIGURATION / FAULT / NONE / UNKNOWN, diagnostic). SPAN Panel models other than MAIN 32 publish a different value set, shown verbatim. |
 | Shed Priority | Select | Load-shedding priority (UNKNOWN / OFF_GRID / SOC_THRESHOLD / NEVER). Writes are gated on the property's `$settable` from the device `$description`. A circuit whose priority the panel does not mark settable (on r202639, the circuits it adds for a commissioned PV or battery system) still shows its priority, but a change is refused with an error rather than putting a command on the wire. The gate is re-read live, so re-commissioning a circuit takes effect without reloading the integration. |
 | PCS Managed / PCS Priority | Binary Sensor / Sensor | Whether the PCS is managing this circuit + its priority (diagnostic) |
 | Relay Controllable | Binary Sensor | Whether the relay can be commanded (diagnostic) |
 | Feeds Device / Feeds Device Type / Feeds Connection Problem / Feeds Count | Sensor / Binary Sensor | Connection capability — populated when the circuit is commissioned as feeding a specific DER (PV, IN_PANEL BESS, EVSE) |
+
+SPAN Panel models other than MAIN 32 publish these as well:
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| Tags / Locations / Nominal Voltage / Breaker Protection | Sensor | Circuit configuration, shown as the panel publishes it (diagnostic) |
+| Dedicated | Binary Sensor | Whether the circuit is dedicated to one load (diagnostic) |
+| Fed By Device / Fed By Device Type / Fed By Connection Problem | Sensor / Binary Sensor | The device wired upstream of this circuit and the panel's view of its link health (diagnostic) |
+| Backed Up | Sensor | BACKED_UP / NOT_BACKED_UP / UNKNOWN: whether the circuit is on the backup side of a microgrid interconnect device (diagnostic) |
+| Feeds Role | Sensor | LOADS / SUBPANEL / SOLAR / STORAGE / GENERATOR / MIXED / UNUSED: what the circuit feeds when that is not published as its own device (diagnostic) |
+| Meter Shared With / Relay Shared With | Sensor | Device-ids of the other circuits this circuit's meter also measures or its relay also switches (diagnostic, **disabled by default**) |
+
+A circuit whose name has not arrived is named `Circuit <device-id>`, using the whole device-id.
+
+### Remote Current Transformer Devices
+
+On SPAN Panel models other than MAIN 32, a remote current transformer is published as a circuit device that declares no `info/spaces`, because it measures a conductor outside the panel. It appears as a device named `<serial suffix> Remote CT` with Current, Power, Energy and Energy Returned entities (plus Meter Shared With, disabled by default) and nothing else. It meters like the upstream lugs: Power is positive while importing from the grid, Energy counts grid import and Energy Returned counts export. The sign follows the CT's physical orientation, so a CT installed reversed reads inverted. Several remote current transformers on one panel share the device name, and Home Assistant adds a suffix to their entity ids.
 
 ### Battery Storage (BESS) Device
 
@@ -193,9 +219,13 @@ Created per EVSE when one is commissioned.
 |--------|------|-------------|
 | Vendor / Product / Part Number / Serial Number / Firmware Version | Sensor | Identity (diagnostic) |
 | Status | Sensor | EVSE operational state |
-| Lock State | Sensor | Cable lock state (read-only per spec) |
-| Advertised Current | Sensor | Current the EVSE is offering to the car (A) |
+| Lock State | Sensor | Cable lock state. Settable on SPAN Panel models other than MAIN 32, but shown read-only here. |
+| Advertised Current | Sensor | Current the EVSE is offering to the car (A). Not published by SPAN Panel models other than MAIN 32. |
 | User Max Charge Current / Max Charge Current | Sensor | User-imposed and hardware ceilings (A, diagnostic) |
+
+### Entities with no value
+
+Some entities exist because the panel declares the property, but stay `unknown` because the panel publishes no value for it. On SPAN Panel models other than MAIN 32 with neither a battery system nor solar, PV Power and Battery Power stay `unknown`, and Requested Import Limit has no value on those models.
 
 ## Multi-Panel Support
 
@@ -227,7 +257,7 @@ This integration maps these to user-friendly entity names:
 
 Circuit `active-power` is **negated** by the integration so that positive values represent consumption. This matches Home Assistant's convention for `device_consumption` stat_rate in the Energy Dashboard "Now" (power Sankey) tab.
 
-Raw SPAN values: negative = consumption, positive = generation (backfeed from PV). After negation: positive = consumption, negative = generation. The one exception is a circuit that feeds a PV system: SPAN already reports those generation-positive, so the flip is suppressed at runtime once the circuit's `connection/feeds-device-type` resolves to a PV device.
+Raw SPAN values: negative = consumption, positive = generation (backfeed from PV). After negation: positive = consumption, negative = generation. The one exception is a circuit that feeds solar: SPAN already reports those generation-positive, so the flip is suppressed at runtime once the circuit's `connection/feeds-device-type` resolves to a PV device or, on SPAN Panel models other than MAIN 32, its `connection/feeds-role` is `SOLAR`. Every other Feeds Role, including `STORAGE`, keeps the flip.
 
 Most SPAN properties report from the **panel's perspective**: positive means power flowing into the panel across that boundary. The panel's `power-flows` capability is the documented exception. It is a derived, source-centric summary in which each value describes what the named entity is doing, so its signs run opposite to every `meter` capability: SPAN publishes `grid` positive while exporting to the utility, `pv` negative while generating, `battery` positive while charging, and `site` positive while consuming.
 
@@ -254,6 +284,7 @@ For the **Energy Dashboard**, use these entity mappings:
 - **Return to grid**: Upstream Lugs device, "Energy Returned" sensor
 - **Solar production**: PV-feeding circuit's "Energy Returned" sensor (if PV is IN_PANEL — derive position from the circuit's `feeds-device-id` pointing at the PV device), or your solar integration's production entity (if PV is UPSTREAM — derive position from `lugs-up/connection/fed-by-device-id` pointing at the PV)
 - **Battery**: Dedicated battery integration entities (if BESS is UPSTREAM), or the BESS-feeding circuit's energy entities (if BESS is IN_PANEL). The Upstream Lugs `Fed By Device` entity points at the BESS Homie device-id when the BESS is upstream of the panel.
+- **On SPAN Panel models other than MAIN 32**, which publish no PV device: solar production is the "Energy Returned" sensor of the circuit whose Feeds Role is `SOLAR`, and an in-panel battery is the circuit whose Feeds Role is `STORAGE`.
 - **Individual device consumption**: Each circuit device's "Energy" sensor
 
 > **Position is derived from the connection graph.** The lugs `connection` capability and per-circuit `connection` capability publish `feeds-device-id` / `fed-by-device-id` pointers that resolve who-feeds-what at runtime. Consumers like hass-atlas walk this graph automatically.
@@ -284,7 +315,7 @@ SPAN Panel                          Home Assistant
 - **REST v2 API** is used only during the config flow for authentication, status checks, and CA certificate download
 - **MQTT** handles all runtime communication — property updates, relay commands, and availability
 - **Homie Convention** provides the self-describing schema (`$description`) that the integration uses to auto-generate entities. Entity *structure* (devices, capabilities, properties, units, enum options, settability) comes from the live `$description`; HA *presentation* (`device_class`, `state_class`, icon, category) comes from a declarative `SEMANTICS` table in `semantics.py`.
-- **Adapter schema is the source of truth.** The vendored `adapter_schema.json` (the adapter's `GET /api/v2/homie/schema` response) enumerates every device class / capability / property the adapter can publish. A coverage test asserts the integration presents all of it; the public [eBus specification](https://github.com/electrification-bus/specification) catalogs are vendored under `spec/` as the upstream conformance reference (pinned by `.ebus-spec.json`, with a `spec-drift` CI job).
+- **Adapter schema is the source of truth.** The vendored `adapter_schema.json` (a MAIN 32 panel's `GET /api/v2/homie/schema` response) enumerates every device class / capability / property that model can publish, and `homie_schema_union_r202639.json` is SPAN's r202639 union across all models. A coverage test asserts the integration presents all of both; the public [eBus specification](https://github.com/electrification-bus/specification) catalogs are vendored under `spec/` as the upstream conformance reference (pinned by `.ebus-spec.json`, with a `spec-drift` CI job).
 - **ebus-sdk** manages the MQTT connection, device discovery, and property tracking
 
 ### Thread Safety
@@ -310,7 +341,7 @@ nt-2024-a1b2c_nt-2024-a1b2c-tg-pw-1234_soc_soc              # BESS state-of-char
 nt-2024-a1b2c_nt-2024-a1b2c-tg-pw-1234-mid_grid_islanding-state  # MID grandchild
 ```
 
-The panel-serial prefix is intentional even when the device-id segment already contains the panel serial — it keeps unique-IDs globally distinct across multi-panel installs, and circuit device-ids are bare UUIDs (no panel-serial prefix in the Homie device-id itself), so the panel-serial here is the only thing keeping their unique-IDs distinct across panels.
+The panel-serial prefix is intentional even when the device-id segment already contains the panel serial — it keeps unique-IDs globally distinct across multi-panel installs. Device-ids are opaque, and a circuit's device-id need not carry the panel serial, so the panel-serial here is the only thing keeping circuit unique-IDs distinct across panels.
 
 HA device identifiers use `{panel-serial}_{device-id}`, linked up the tree via `via_device` (lugs / BESS / PV / EVSE / circuit → panel root; MID → BESS).
 

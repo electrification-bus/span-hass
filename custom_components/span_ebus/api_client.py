@@ -45,6 +45,10 @@ class SpanNotReadyError(SpanApiError):
     """Panel is not ready to register clients yet (HTTP 503); retry shortly."""
 
 
+class SpanRateLimitError(SpanApiError):
+    """Panel is limiting requests from this client (HTTP 429); retry shortly."""
+
+
 @dataclass
 class StatusResponse:
     """Response from GET /api/v2/status."""
@@ -53,6 +57,21 @@ class StatusResponse:
     firmware_version: str
     # Absent on firmware before r202639.
     hardware_version: str | None = None
+    proximity_proven: bool | None = None
+
+    @property
+    def is_other_model(self) -> bool | None:
+        """Whether this is a SPAN Panel model other than MAIN 32.
+
+        True for hardware version 3.0, False for 1.2, 2.0 or no hardware
+        version (firmware before r202639), and None for any other value,
+        including UNKNOWN.
+        """
+        if self.hardware_version == "3.0":
+            return True
+        if self.hardware_version in (None, "1.2", "2.0"):
+            return False
+        return None
 
 
 @dataclass
@@ -129,6 +148,9 @@ class SpanApiClient:
                 if resp.status == 503:
                     detail = await self._error_detail(resp)
                     raise SpanNotReadyError(detail or "Panel is not ready yet")
+                if resp.status == 429:
+                    detail = await self._error_detail(resp)
+                    raise SpanRateLimitError(detail or "Rate limit exceeded")
                 resp.raise_for_status()
                 return await resp.json()
         except SpanApiError:
@@ -140,17 +162,23 @@ class SpanApiClient:
 
     @staticmethod
     async def _error_detail(resp: aiohttp.ClientResponse) -> str | None:
-        """Return the string ``detail`` of an error body, or None.
+        """Return the string message of an error body, or None.
 
-        The panel sends ``{"detail": "<message>"}``. A missing or unparsable
-        body, or a ``detail`` that is not a non-empty string, yields None.
+        The panel sends ``{"detail": "<message>"}``, or ``{"error": "<message>"}``
+        for some 429 responses. A missing or unparsable body, or a message that
+        is not a non-empty string, yields None.
         """
         try:
             body = await resp.json(content_type=None)
         except Exception:
             return None
-        detail = body.get("detail") if isinstance(body, dict) else None
-        return detail if isinstance(detail, str) and detail else None
+        if not isinstance(body, dict):
+            return None
+        for key in ("detail", "error"):
+            detail = body.get(key)
+            if isinstance(detail, str) and detail:
+                return detail
+        return None
 
     async def get_status(self) -> StatusResponse:
         """Get panel serial number, firmware version, and hardware version.
@@ -162,6 +190,7 @@ class SpanApiClient:
             serial_number=data["serialNumber"],
             firmware_version=data["firmwareVersion"],
             hardware_version=data.get("hardwareVersion"),
+            proximity_proven=data.get("proximityProven"),
         )
 
     async def register(

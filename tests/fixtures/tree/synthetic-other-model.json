@@ -1,0 +1,1362 @@
+{
+  "metadata": {
+    "serial": "zz-0000-synth",
+    "firmware": "r202639",
+    "data_model_version": "1.0",
+    "synthetic": true,
+    "derived_from": "SPAN API Client Docs r202639 schema",
+    "note": "not captured from a panel",
+    "schema": "tree-v1"
+  },
+  "devices": {
+    "zz-0000-synth": {
+      "description": {
+        "homie": "5.0",
+        "version": null,
+        "type": "energy.ebus.device.distribution-enclosure",
+        "name": "SPAN Panel eBus Adapter",
+        "nodes": {
+          "info": {
+            "name": "info",
+            "type": "energy.ebus.capability.info",
+            "properties": {
+              "vendor-name": {
+                "name": "Vendor name",
+                "datatype": "string"
+              },
+              "name": {
+                "name": "User-assigned name for the site",
+                "datatype": "string"
+              },
+              "latitude": {
+                "name": "Site latitude (WGS84 decimal degrees, positive north)",
+                "datatype": "float",
+                "unit": "\u00b0"
+              },
+              "longitude": {
+                "name": "Site longitude (WGS84 decimal degrees, positive east)",
+                "datatype": "float",
+                "unit": "\u00b0"
+              },
+              "address-lines": {
+                "name": "Street address lines as recorded at commissioning",
+                "datatype": "string"
+              },
+              "locality": {
+                "name": "City or locality",
+                "datatype": "string"
+              },
+              "region": {
+                "name": "State, province or region",
+                "datatype": "string"
+              },
+              "country-code": {
+                "name": "Country or locale code as recorded at commissioning",
+                "datatype": "string"
+              },
+              "utility-meter-serial-number": {
+                "name": "Serial number of the utility meter serving the site",
+                "datatype": "string"
+              },
+              "model": {
+                "name": "Model",
+                "datatype": "enum",
+                "format": "MAIN_16,MLO_24,MAIN_32,MAIN_40,MLO_48,UNKNOWN"
+              },
+              "serial-number": {
+                "name": "Serial number",
+                "datatype": "string"
+              },
+              "hardware-version": {
+                "name": "Hardware version",
+                "datatype": "string"
+              },
+              "firmware-version": {
+                "name": "Firmware version",
+                "datatype": "string"
+              },
+              "data-model-version": {
+                "name": "eBus data-model version (parent/child schema discriminator)",
+                "datatype": "string"
+              }
+            }
+          },
+          "door": {
+            "name": "door",
+            "type": "energy.ebus.capability.door",
+            "properties": {
+              "state": {
+                "name": "Door state",
+                "datatype": "enum",
+                "format": "UNKNOWN,OPEN,CLOSED"
+              }
+            }
+          },
+          "status": {
+            "name": "status",
+            "type": "energy.ebus.capability.status",
+            "properties": {
+              "relay": {
+                "name": "Main relay",
+                "datatype": "enum",
+                "format": "UNKNOWN,OPEN,CLOSED"
+              },
+              "ethernet": {
+                "name": "Is Ethernet network interface operational?",
+                "datatype": "boolean"
+              },
+              "wifi": {
+                "name": "Is Wi-Fi network interface operational?",
+                "datatype": "boolean"
+              },
+              "wifi-ssid": {
+                "name": "SSID to which Wi-Fi network interface is connected",
+                "datatype": "string"
+              },
+              "cloud-connection": {
+                "name": "Device connected to vendor cloud?",
+                "datatype": "enum",
+                "format": "UNKNOWN,UNCONNECTED,CONNECTED"
+              },
+              "postal-code": {
+                "name": "Postal (Zip) code",
+                "datatype": "string"
+              },
+              "time-zone": {
+                "name": "Time zone",
+                "datatype": "string"
+              }
+            }
+          },
+          "meter": {
+            "name": "meter",
+            "type": "energy.ebus.capability.meter",
+            "properties": {
+              "voltage-a": {
+                "name": "L1 voltage",
+                "datatype": "float",
+                "unit": "V"
+              },
+              "voltage-b": {
+                "name": "L2 voltage",
+                "datatype": "float",
+                "unit": "V"
+              },
+              "busbar-current": {
+                "name": "Estimated busbar current",
+                "datatype": "float",
+                "unit": "A"
+              },
+              "frequency": {
+                "name": "Line frequency",
+                "datatype": "float",
+                "unit": "Hz"
+              }
+            }
+          },
+          "pcs": {
+            "name": "pcs",
+            "type": "energy.ebus.capability.pcs",
+            "properties": {
+              "enabled": {
+                "name": "PCS system enabled",
+                "datatype": "boolean"
+              },
+              "active": {
+                "name": "PCS system actively controlling one (or more) loads",
+                "datatype": "boolean"
+              },
+              "import-limit": {
+                "name": "The power import limit currently being managed to",
+                "datatype": "float",
+                "unit": "A"
+              },
+              "binding-constraint": {
+                "name": "Which constraint class currently sets the import limit",
+                "datatype": "enum",
+                "format": "FSR,DOE,VOLTAGE,OFF_GRID,REQUESTED,OPERATOR,NONE,UNKNOWN"
+              },
+              "feed-import-limit": {
+                "name": "Limit of maximum power feeding the distribution enclosure",
+                "datatype": "float",
+                "unit": "A"
+              },
+              "feed-import-limit-enablement": {
+                "name": "Enablement status of the feed-import-limit",
+                "datatype": "enum",
+                "format": "UNSPECIFIED,UNCONFIGURED,DISABLED,ENABLED"
+              },
+              "feed-import-limit-active": {
+                "name": "Is feed-import-limit currently being enforced?",
+                "datatype": "boolean"
+              },
+              "operator-import-limit": {
+                "name": "Operator-imposed maximum import limit",
+                "datatype": "float",
+                "unit": "A"
+              },
+              "operator-import-limit-enablement": {
+                "name": "Enablement status of the operator-import-limit",
+                "datatype": "enum",
+                "format": "UNSPECIFIED,UNCONFIGURED,DISABLED,ENABLED"
+              },
+              "operator-import-limit-active": {
+                "name": "Is operator-import-limit currently being enforced?",
+                "datatype": "boolean"
+              },
+              "off-grid-import-limit": {
+                "name": "Off-Grid limit maximum import power",
+                "datatype": "float",
+                "unit": "A"
+              },
+              "off-grid-import-limit-enablement": {
+                "name": "Enablement status of the off-grid-import-limit",
+                "datatype": "enum",
+                "format": "UNSPECIFIED,UNCONFIGURED,DISABLED,ENABLED"
+              },
+              "off-grid-import-limit-active": {
+                "name": "Is off-grid-import-limit currently being enforced?",
+                "datatype": "boolean"
+              },
+              "requested-import-limit": {
+                "name": "Requested limit maximum import power",
+                "datatype": "float",
+                "unit": "A"
+              },
+              "requested-import-limit-enablement": {
+                "name": "Enablement status of the requested-import-limit",
+                "datatype": "enum",
+                "format": "UNSPECIFIED,UNCONFIGURED,DISABLED,ENABLED"
+              },
+              "requested-import-limit-active": {
+                "name": "Is requested-import-limit currently being enforced?",
+                "datatype": "boolean"
+              }
+            }
+          },
+          "shed-forecast": {
+            "name": "shed-forecast",
+            "type": "energy.ebus.capability.shed-forecast",
+            "properties": {
+              "total-time-remaining": {
+                "name": "Estimated total time before all sheddable circuits are shed (off-grid runtime)",
+                "datatype": "integer",
+                "unit": "min"
+              },
+              "time-to-priority-shed": {
+                "name": "Estimated time before the next priority tier is shed",
+                "datatype": "integer",
+                "unit": "min"
+              },
+              "full-charge-total-time-remaining": {
+                "name": "Estimated total time assuming BESS starts at full charge",
+                "datatype": "integer",
+                "unit": "min"
+              },
+              "full-charge-time-to-priority-shed": {
+                "name": "Estimated time to next priority shed assuming BESS starts at full charge",
+                "datatype": "integer",
+                "unit": "min"
+              },
+              "confidence": {
+                "name": "Confidence of the shed-forecast estimate",
+                "datatype": "enum",
+                "format": "LOW,MEDIUM,HIGH"
+              }
+            }
+          },
+          "shed": {
+            "name": "shed",
+            "type": "energy.ebus.capability.shed",
+            "properties": {
+              "asserted-islanding-state": {
+                "name": "Consumer-asserted islanding-state (grid-state override during MID/BESS comm-loss)",
+                "datatype": "enum",
+                "format": "NONE,ON_GRID,OFF_GRID",
+                "settable": true
+              },
+              "policy": {
+                "name": "Shed policy (algorithm and parameters)",
+                "datatype": "json",
+                "format": "{\"$id\":\"soc-priority.v1\",\"type\":\"object\",\"required\":[\"algorithm\",\"parameters\"],\"additionalProperties\":false,\"properties\":{\"algorithm\":{\"const\":\"soc-priority.v1\"},\"parameters\":{\"type\":\"object\",\"required\":[\"soc-threshold-shed\",\"soc-threshold-release\"],\"additionalProperties\":false,\"properties\":{\"soc-threshold-shed\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":100,\"description\":\"SoC percent below which SOC_THRESHOLD circuits shed\"},\"soc-threshold-release\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":100,\"description\":\"SoC percent above which shed SOC_THRESHOLD circuits restore\"}}}}}"
+              }
+            }
+          },
+          "power-flows": {
+            "name": "power-flows",
+            "type": "energy.ebus.capability.power-flows",
+            "properties": {
+              "pv": {
+                "name": "PV power flow",
+                "datatype": "float",
+                "unit": "W"
+              },
+              "battery": {
+                "name": "Battery/BESS power flow",
+                "datatype": "float",
+                "unit": "W"
+              },
+              "grid": {
+                "name": "Grid power flow",
+                "datatype": "float",
+                "unit": "W"
+              },
+              "site": {
+                "name": "Site power flow",
+                "datatype": "float",
+                "unit": "W"
+              }
+            }
+          }
+        },
+        "children": [
+          "zz-0000-synth-lugs-up",
+          "zz-circ-a",
+          "zz-circ-b",
+          "zz-circ-c",
+          "zz-meter-a",
+          "zz-0000-synth-evse"
+        ],
+        "extensions": []
+      },
+      "properties": {
+        "info/vendor-name": "SPAN",
+        "info/name": "Example Site",
+        "info/latitude": "37.0000",
+        "info/longitude": "-122.0000",
+        "info/address-lines": "1 Example Street",
+        "info/locality": "Exampleville",
+        "info/region": "CA",
+        "info/country-code": "US",
+        "info/utility-meter-serial-number": "00000000",
+        "info/model": "UNKNOWN",
+        "info/serial-number": "zz-0000-synth",
+        "info/hardware-version": "3.0",
+        "info/firmware-version": "r202639",
+        "info/data-model-version": "1.0",
+        "door/state": "UNKNOWN",
+        "status/relay": "CLOSED",
+        "status/ethernet": "true",
+        "status/wifi": "false",
+        "status/wifi-ssid": null,
+        "status/cloud-connection": "CONNECTED",
+        "status/postal-code": "00000",
+        "status/time-zone": "America/Los_Angeles",
+        "meter/voltage-a": "120.1",
+        "meter/voltage-b": "119.8",
+        "meter/busbar-current": "12.4",
+        "meter/frequency": "60.01",
+        "pcs/enabled": "false",
+        "pcs/active": "false",
+        "pcs/import-limit": null,
+        "pcs/binding-constraint": "NONE",
+        "pcs/feed-import-limit": null,
+        "pcs/feed-import-limit-enablement": null,
+        "pcs/feed-import-limit-active": null,
+        "pcs/operator-import-limit": null,
+        "pcs/operator-import-limit-enablement": null,
+        "pcs/operator-import-limit-active": null,
+        "pcs/off-grid-import-limit": null,
+        "pcs/off-grid-import-limit-enablement": null,
+        "pcs/off-grid-import-limit-active": null,
+        "pcs/requested-import-limit": null,
+        "pcs/requested-import-limit-enablement": null,
+        "pcs/requested-import-limit-active": null,
+        "shed-forecast/total-time-remaining": null,
+        "shed-forecast/time-to-priority-shed": null,
+        "shed-forecast/full-charge-total-time-remaining": null,
+        "shed-forecast/full-charge-time-to-priority-shed": null,
+        "shed-forecast/confidence": null,
+        "shed/asserted-islanding-state": "NONE",
+        "shed/policy": null,
+        "power-flows/pv": null,
+        "power-flows/battery": null,
+        "power-flows/grid": "-1450.0",
+        "power-flows/site": "1450.0"
+      },
+      "root_id": "zz-0000-synth",
+      "parent_id": null,
+      "children_ids": [
+        "zz-0000-synth-lugs-up",
+        "zz-circ-a",
+        "zz-circ-b",
+        "zz-circ-c",
+        "zz-meter-a",
+        "zz-0000-synth-evse"
+      ],
+      "is_root": true
+    },
+    "zz-0000-synth-lugs-up": {
+      "description": {
+        "homie": "5.0",
+        "version": null,
+        "type": "energy.ebus.device.lugs",
+        "name": "zz-0000-synth-lugs-up",
+        "nodes": {
+          "info": {
+            "name": "info",
+            "type": "energy.ebus.capability.info",
+            "properties": {
+              "direction": {
+                "name": "Lugs feed direction: upstream or downstream",
+                "datatype": "enum",
+                "format": "UPSTREAM,DOWNSTREAM"
+              }
+            }
+          },
+          "meter": {
+            "name": "meter",
+            "type": "energy.ebus.capability.meter",
+            "properties": {
+              "current-a": {
+                "name": "L1 current",
+                "datatype": "float",
+                "unit": "A"
+              },
+              "current-b": {
+                "name": "L2 current",
+                "datatype": "float",
+                "unit": "A"
+              },
+              "active-power": {
+                "name": "Active power",
+                "datatype": "float",
+                "unit": "W"
+              },
+              "imported-energy": {
+                "name": "Imported energy",
+                "datatype": "float",
+                "unit": "Wh"
+              },
+              "exported-energy": {
+                "name": "Exported energy",
+                "datatype": "float",
+                "unit": "Wh"
+              }
+            }
+          },
+          "connection": {
+            "name": "connection",
+            "type": "energy.ebus.capability.connection",
+            "properties": {
+              "fed-by-device-id": {
+                "name": "Homie device-id of the upstream device feeding this lugs",
+                "datatype": "string"
+              },
+              "fed-by-device-type": {
+                "name": "Homie $type of the upstream device",
+                "datatype": "string"
+              },
+              "fed-by-device-status": {
+                "name": "Panel's view of comm health to the upstream device",
+                "datatype": "enum",
+                "format": "OK,LOST,DEGRADED"
+              },
+              "feeds-device-id": {
+                "name": "Homie device-id of the downstream device fed by this lugs",
+                "datatype": "string"
+              },
+              "feeds-device-type": {
+                "name": "Homie $type of the downstream device",
+                "datatype": "string"
+              },
+              "feeds-device-status": {
+                "name": "Panel's view of comm health to the downstream device",
+                "datatype": "enum",
+                "format": "OK,LOST,DEGRADED"
+              },
+              "count": {
+                "name": "Number of physical units aggregated up/downstream",
+                "datatype": "integer"
+              },
+              "backed-up": {
+                "name": "Whether the downstream path is on the backup (island) side of a microgrid interconnect device",
+                "datatype": "enum",
+                "format": "BACKED_UP,NOT_BACKED_UP,UNKNOWN"
+              },
+              "feeds-role": {
+                "name": "Coarse role of a downstream node not published as its own eBus device",
+                "datatype": "enum",
+                "format": "LOADS,SUBPANEL,SOLAR,STORAGE,GENERATOR,MIXED,UNUSED"
+              },
+              "service-rating": {
+                "name": "Utility service rating (service size) at a service-entrance connection point",
+                "datatype": "integer",
+                "unit": "A"
+              },
+              "overcurrent-protection": {
+                "name": "Overcurrent-protection rating at a connection point that is not itself a breaker-protected circuit",
+                "datatype": "integer",
+                "unit": "A"
+              }
+            }
+          }
+        },
+        "children": [],
+        "root": "zz-0000-synth",
+        "parent": "zz-0000-synth",
+        "extensions": []
+      },
+      "properties": {
+        "info/direction": "UPSTREAM",
+        "meter/current-a": "6.1",
+        "meter/current-b": "6.0",
+        "meter/active-power": "1450.0",
+        "meter/imported-energy": "1234567.0",
+        "meter/exported-energy": "234567.0",
+        "connection/fed-by-device-id": null,
+        "connection/fed-by-device-type": null,
+        "connection/fed-by-device-status": null,
+        "connection/feeds-device-id": null,
+        "connection/feeds-device-type": null,
+        "connection/feeds-device-status": null,
+        "connection/count": null,
+        "connection/backed-up": "NOT_BACKED_UP",
+        "connection/feeds-role": "LOADS",
+        "connection/service-rating": "200",
+        "connection/overcurrent-protection": "200"
+      },
+      "root_id": "zz-0000-synth",
+      "parent_id": "zz-0000-synth",
+      "children_ids": [],
+      "is_root": false
+    },
+    "zz-circ-a": {
+      "description": {
+        "homie": "5.0",
+        "version": null,
+        "type": "energy.ebus.device.circuit",
+        "name": "zz-circ-a",
+        "nodes": {
+          "info": {
+            "name": "info",
+            "type": "energy.ebus.capability.info",
+            "properties": {
+              "name": {
+                "name": "Circuit name",
+                "datatype": "string"
+              },
+              "spaces": {
+                "name": "Physical panel position(s) the circuit occupies",
+                "datatype": "string"
+              },
+              "tags": {
+                "name": "Load-type tags for the circuit",
+                "datatype": "string"
+              },
+              "locations": {
+                "name": "Where in the home the circuit serves",
+                "datatype": "string"
+              },
+              "dedicated": {
+                "name": "Commissioned as serving a single load",
+                "datatype": "boolean"
+              },
+              "nominal-voltage": {
+                "name": "Nominal circuit voltage",
+                "datatype": "float",
+                "unit": "V"
+              }
+            }
+          },
+          "switch": {
+            "name": "switch",
+            "type": "energy.ebus.capability.switch",
+            "properties": {
+              "relay": {
+                "name": "Circuit relay state",
+                "datatype": "enum",
+                "format": "UNKNOWN,OPEN,CLOSED",
+                "settable": true
+              },
+              "relay-requester": {
+                "name": "Actor requesting the relay state",
+                "datatype": "enum",
+                "format": "UNKNOWN,NONE,LOAD_SHED,USER,PCS,FAULT,CIRCUIT_SCHEDULER,CONTROL_MANAGER,MID_CONTROL_DER,MODBUS_CONTROL_REQUEST,NFT_RELAY_CONTROL,BATTERY_SOLAR_MID_RELAY_CONTROL"
+              },
+              "relay-controllable": {
+                "name": "Can the circuit's relay be commanded by the user?",
+                "datatype": "boolean"
+              },
+              "shared-with-device-ids": {
+                "name": "Other circuits this relay also switches",
+                "datatype": "string"
+              }
+            }
+          },
+          "breaker": {
+            "name": "breaker",
+            "type": "energy.ebus.capability.breaker",
+            "properties": {
+              "rating": {
+                "name": "Circuit breaker rating",
+                "datatype": "integer",
+                "unit": "A"
+              },
+              "poles": {
+                "name": "Number of breaker poles",
+                "datatype": "integer",
+                "format": "1:4:1"
+              },
+              "protection-functions": {
+                "name": "Protections this breaker provides",
+                "datatype": "enum",
+                "format": "OVERCURRENT,SHORT_CIRCUIT,GROUND_FAULT,ARC_FAULT"
+              }
+            }
+          },
+          "meter": {
+            "name": "meter",
+            "type": "energy.ebus.capability.meter",
+            "properties": {
+              "current": {
+                "name": "Measured current",
+                "datatype": "float",
+                "unit": "A"
+              },
+              "active-power": {
+                "name": "Measured active power",
+                "datatype": "float",
+                "unit": "W"
+              },
+              "imported-energy": {
+                "name": "Measured energy imported",
+                "datatype": "float",
+                "unit": "Wh"
+              },
+              "exported-energy": {
+                "name": "Measured energy exported",
+                "datatype": "float",
+                "unit": "Wh"
+              },
+              "shared-with-device-ids": {
+                "name": "Other circuits this meter's hardware also measures",
+                "datatype": "string"
+              }
+            }
+          },
+          "load-shed": {
+            "name": "load-shed",
+            "type": "energy.ebus.capability.load-shed",
+            "properties": {
+              "priority": {
+                "name": "Configured priority of circuit shedding when off-grid (dominant-power-source != GRID)",
+                "datatype": "enum",
+                "format": "UNKNOWN,OFF_GRID,SOC_THRESHOLD,NEVER",
+                "settable": true
+              }
+            }
+          },
+          "pcs": {
+            "name": "pcs",
+            "type": "energy.ebus.capability.pcs",
+            "properties": {
+              "managed": {
+                "name": "Is circuit managed by PCS?",
+                "datatype": "boolean"
+              },
+              "priority": {
+                "name": "Circuit PCS priority ranking",
+                "datatype": "integer"
+              }
+            }
+          },
+          "connection": {
+            "name": "connection",
+            "type": "energy.ebus.capability.connection",
+            "properties": {
+              "feeds-device-id": {
+                "name": "Homie device-id of the downstream device fed by this circuit",
+                "datatype": "string"
+              },
+              "feeds-device-type": {
+                "name": "Homie $type of the downstream device",
+                "datatype": "string"
+              },
+              "feeds-device-status": {
+                "name": "Panel's view of comm health to the downstream device",
+                "datatype": "enum",
+                "format": "OK,LOST,DEGRADED"
+              },
+              "count": {
+                "name": "Number of physical units aggregated downstream (e.g. microinverters, packs)",
+                "datatype": "integer"
+              },
+              "fed-by-device-id": {
+                "name": "Homie device-id of the device wired upstream of this circuit",
+                "datatype": "string"
+              },
+              "fed-by-device-type": {
+                "name": "Homie $type of the upstream device",
+                "datatype": "string"
+              },
+              "fed-by-device-status": {
+                "name": "Panel's view of comm health to the upstream device",
+                "datatype": "enum",
+                "format": "OK,LOST,DEGRADED"
+              },
+              "backed-up": {
+                "name": "Whether this circuit is on the backup (island) side of a microgrid interconnect device",
+                "datatype": "enum",
+                "format": "BACKED_UP,NOT_BACKED_UP,UNKNOWN"
+              },
+              "feeds-role": {
+                "name": "Coarse role of a downstream node not published as its own eBus device",
+                "datatype": "enum",
+                "format": "LOADS,SUBPANEL,SOLAR,STORAGE,GENERATOR,MIXED,UNUSED"
+              }
+            }
+          }
+        },
+        "children": [],
+        "root": "zz-0000-synth",
+        "parent": "zz-0000-synth",
+        "extensions": []
+      },
+      "properties": {
+        "info/name": "Kitchen",
+        "info/spaces": "1,3",
+        "info/tags": null,
+        "info/locations": null,
+        "info/dedicated": "false",
+        "info/nominal-voltage": "240.0",
+        "switch/relay": "CLOSED",
+        "switch/relay-requester": "NONE",
+        "switch/relay-controllable": "true",
+        "switch/shared-with-device-ids": null,
+        "breaker/rating": "20",
+        "breaker/poles": "2",
+        "breaker/protection-functions": "OVERCURRENT",
+        "meter/current": "6.0",
+        "meter/active-power": "-1450.0",
+        "meter/imported-energy": "12.0",
+        "meter/exported-energy": "345678.0",
+        "meter/shared-with-device-ids": null,
+        "load-shed/priority": "NEVER",
+        "pcs/managed": "false",
+        "pcs/priority": null,
+        "connection/feeds-device-id": null,
+        "connection/feeds-device-type": null,
+        "connection/feeds-device-status": null,
+        "connection/count": null,
+        "connection/fed-by-device-id": null,
+        "connection/fed-by-device-type": null,
+        "connection/fed-by-device-status": null,
+        "connection/backed-up": "NOT_BACKED_UP",
+        "connection/feeds-role": "LOADS"
+      },
+      "root_id": "zz-0000-synth",
+      "parent_id": "zz-0000-synth",
+      "children_ids": [],
+      "is_root": false
+    },
+    "zz-circ-b": {
+      "description": {
+        "homie": "5.0",
+        "version": null,
+        "type": "energy.ebus.device.circuit",
+        "name": "zz-circ-b",
+        "nodes": {
+          "info": {
+            "name": "info",
+            "type": "energy.ebus.capability.info",
+            "properties": {
+              "name": {
+                "name": "Circuit name",
+                "datatype": "string"
+              },
+              "spaces": {
+                "name": "Physical panel position(s) the circuit occupies",
+                "datatype": "string"
+              },
+              "tags": {
+                "name": "Load-type tags for the circuit",
+                "datatype": "string"
+              },
+              "locations": {
+                "name": "Where in the home the circuit serves",
+                "datatype": "string"
+              },
+              "dedicated": {
+                "name": "Commissioned as serving a single load",
+                "datatype": "boolean"
+              },
+              "nominal-voltage": {
+                "name": "Nominal circuit voltage",
+                "datatype": "float",
+                "unit": "V"
+              }
+            }
+          },
+          "switch": {
+            "name": "switch",
+            "type": "energy.ebus.capability.switch",
+            "properties": {
+              "relay": {
+                "name": "Circuit relay state",
+                "datatype": "enum",
+                "format": "UNKNOWN,OPEN,CLOSED",
+                "settable": true
+              },
+              "relay-requester": {
+                "name": "Actor requesting the relay state",
+                "datatype": "enum",
+                "format": "UNKNOWN,NONE,LOAD_SHED,USER,PCS,FAULT,CIRCUIT_SCHEDULER,CONTROL_MANAGER,MID_CONTROL_DER,MODBUS_CONTROL_REQUEST,NFT_RELAY_CONTROL,BATTERY_SOLAR_MID_RELAY_CONTROL"
+              },
+              "relay-controllable": {
+                "name": "Can the circuit's relay be commanded by the user?",
+                "datatype": "boolean"
+              },
+              "shared-with-device-ids": {
+                "name": "Other circuits this relay also switches",
+                "datatype": "string"
+              }
+            }
+          },
+          "breaker": {
+            "name": "breaker",
+            "type": "energy.ebus.capability.breaker",
+            "properties": {
+              "rating": {
+                "name": "Circuit breaker rating",
+                "datatype": "integer",
+                "unit": "A"
+              },
+              "poles": {
+                "name": "Number of breaker poles",
+                "datatype": "integer",
+                "format": "1:4:1"
+              },
+              "protection-functions": {
+                "name": "Protections this breaker provides",
+                "datatype": "enum",
+                "format": "OVERCURRENT,SHORT_CIRCUIT,GROUND_FAULT,ARC_FAULT"
+              }
+            }
+          },
+          "meter": {
+            "name": "meter",
+            "type": "energy.ebus.capability.meter",
+            "properties": {
+              "current": {
+                "name": "Measured current",
+                "datatype": "float",
+                "unit": "A"
+              },
+              "active-power": {
+                "name": "Measured active power",
+                "datatype": "float",
+                "unit": "W"
+              },
+              "imported-energy": {
+                "name": "Measured energy imported",
+                "datatype": "float",
+                "unit": "Wh"
+              },
+              "exported-energy": {
+                "name": "Measured energy exported",
+                "datatype": "float",
+                "unit": "Wh"
+              },
+              "shared-with-device-ids": {
+                "name": "Other circuits this meter's hardware also measures",
+                "datatype": "string"
+              }
+            }
+          },
+          "load-shed": {
+            "name": "load-shed",
+            "type": "energy.ebus.capability.load-shed",
+            "properties": {
+              "priority": {
+                "name": "Configured priority of circuit shedding when off-grid (dominant-power-source != GRID)",
+                "datatype": "enum",
+                "format": "UNKNOWN,OFF_GRID,SOC_THRESHOLD,NEVER",
+                "settable": true
+              }
+            }
+          },
+          "pcs": {
+            "name": "pcs",
+            "type": "energy.ebus.capability.pcs",
+            "properties": {
+              "managed": {
+                "name": "Is circuit managed by PCS?",
+                "datatype": "boolean"
+              },
+              "priority": {
+                "name": "Circuit PCS priority ranking",
+                "datatype": "integer"
+              }
+            }
+          },
+          "connection": {
+            "name": "connection",
+            "type": "energy.ebus.capability.connection",
+            "properties": {
+              "feeds-device-id": {
+                "name": "Homie device-id of the downstream device fed by this circuit",
+                "datatype": "string"
+              },
+              "feeds-device-type": {
+                "name": "Homie $type of the downstream device",
+                "datatype": "string"
+              },
+              "feeds-device-status": {
+                "name": "Panel's view of comm health to the downstream device",
+                "datatype": "enum",
+                "format": "OK,LOST,DEGRADED"
+              },
+              "count": {
+                "name": "Number of physical units aggregated downstream (e.g. microinverters, packs)",
+                "datatype": "integer"
+              },
+              "fed-by-device-id": {
+                "name": "Homie device-id of the device wired upstream of this circuit",
+                "datatype": "string"
+              },
+              "fed-by-device-type": {
+                "name": "Homie $type of the upstream device",
+                "datatype": "string"
+              },
+              "fed-by-device-status": {
+                "name": "Panel's view of comm health to the upstream device",
+                "datatype": "enum",
+                "format": "OK,LOST,DEGRADED"
+              },
+              "backed-up": {
+                "name": "Whether this circuit is on the backup (island) side of a microgrid interconnect device",
+                "datatype": "enum",
+                "format": "BACKED_UP,NOT_BACKED_UP,UNKNOWN"
+              },
+              "feeds-role": {
+                "name": "Coarse role of a downstream node not published as its own eBus device",
+                "datatype": "enum",
+                "format": "LOADS,SUBPANEL,SOLAR,STORAGE,GENERATOR,MIXED,UNUSED"
+              }
+            }
+          }
+        },
+        "children": [],
+        "root": "zz-0000-synth",
+        "parent": "zz-0000-synth",
+        "extensions": []
+      },
+      "properties": {
+        "info/name": "Solar",
+        "info/spaces": "5,7",
+        "info/tags": null,
+        "info/locations": null,
+        "info/dedicated": "false",
+        "info/nominal-voltage": "240.0",
+        "switch/relay": "CLOSED",
+        "switch/relay-requester": "NONE",
+        "switch/relay-controllable": "true",
+        "switch/shared-with-device-ids": null,
+        "breaker/rating": "20",
+        "breaker/poles": "2",
+        "breaker/protection-functions": "OVERCURRENT",
+        "meter/current": "6.2",
+        "meter/active-power": "1500.0",
+        "meter/imported-energy": "456789.0",
+        "meter/exported-energy": "34.0",
+        "meter/shared-with-device-ids": null,
+        "load-shed/priority": "NEVER",
+        "pcs/managed": "false",
+        "pcs/priority": null,
+        "connection/feeds-device-id": null,
+        "connection/feeds-device-type": null,
+        "connection/feeds-device-status": null,
+        "connection/count": null,
+        "connection/fed-by-device-id": null,
+        "connection/fed-by-device-type": null,
+        "connection/fed-by-device-status": null,
+        "connection/backed-up": "NOT_BACKED_UP",
+        "connection/feeds-role": "SOLAR"
+      },
+      "root_id": "zz-0000-synth",
+      "parent_id": "zz-0000-synth",
+      "children_ids": [],
+      "is_root": false
+    },
+    "zz-circ-c": {
+      "description": {
+        "homie": "5.0",
+        "version": null,
+        "type": "energy.ebus.device.circuit",
+        "name": "zz-circ-c",
+        "nodes": {
+          "info": {
+            "name": "info",
+            "type": "energy.ebus.capability.info",
+            "properties": {
+              "name": {
+                "name": "Circuit name",
+                "datatype": "string"
+              },
+              "spaces": {
+                "name": "Physical panel position(s) the circuit occupies",
+                "datatype": "string"
+              },
+              "tags": {
+                "name": "Load-type tags for the circuit",
+                "datatype": "string"
+              },
+              "locations": {
+                "name": "Where in the home the circuit serves",
+                "datatype": "string"
+              },
+              "dedicated": {
+                "name": "Commissioned as serving a single load",
+                "datatype": "boolean"
+              },
+              "nominal-voltage": {
+                "name": "Nominal circuit voltage",
+                "datatype": "float",
+                "unit": "V"
+              }
+            }
+          },
+          "switch": {
+            "name": "switch",
+            "type": "energy.ebus.capability.switch",
+            "properties": {
+              "relay": {
+                "name": "Circuit relay state",
+                "datatype": "enum",
+                "format": "UNKNOWN,OPEN,CLOSED",
+                "settable": true
+              },
+              "relay-requester": {
+                "name": "Actor requesting the relay state",
+                "datatype": "enum",
+                "format": "UNKNOWN,NONE,LOAD_SHED,USER,PCS,FAULT,CIRCUIT_SCHEDULER,CONTROL_MANAGER,MID_CONTROL_DER,MODBUS_CONTROL_REQUEST,NFT_RELAY_CONTROL,BATTERY_SOLAR_MID_RELAY_CONTROL"
+              },
+              "relay-controllable": {
+                "name": "Can the circuit's relay be commanded by the user?",
+                "datatype": "boolean"
+              },
+              "shared-with-device-ids": {
+                "name": "Other circuits this relay also switches",
+                "datatype": "string"
+              }
+            }
+          },
+          "breaker": {
+            "name": "breaker",
+            "type": "energy.ebus.capability.breaker",
+            "properties": {
+              "rating": {
+                "name": "Circuit breaker rating",
+                "datatype": "integer",
+                "unit": "A"
+              },
+              "poles": {
+                "name": "Number of breaker poles",
+                "datatype": "integer",
+                "format": "1:4:1"
+              },
+              "protection-functions": {
+                "name": "Protections this breaker provides",
+                "datatype": "enum",
+                "format": "OVERCURRENT,SHORT_CIRCUIT,GROUND_FAULT,ARC_FAULT"
+              }
+            }
+          },
+          "meter": {
+            "name": "meter",
+            "type": "energy.ebus.capability.meter",
+            "properties": {
+              "current": {
+                "name": "Measured current",
+                "datatype": "float",
+                "unit": "A"
+              },
+              "active-power": {
+                "name": "Measured active power",
+                "datatype": "float",
+                "unit": "W"
+              },
+              "imported-energy": {
+                "name": "Measured energy imported",
+                "datatype": "float",
+                "unit": "Wh"
+              },
+              "exported-energy": {
+                "name": "Measured energy exported",
+                "datatype": "float",
+                "unit": "Wh"
+              },
+              "shared-with-device-ids": {
+                "name": "Other circuits this meter's hardware also measures",
+                "datatype": "string"
+              }
+            }
+          },
+          "load-shed": {
+            "name": "load-shed",
+            "type": "energy.ebus.capability.load-shed",
+            "properties": {
+              "priority": {
+                "name": "Configured priority of circuit shedding when off-grid (dominant-power-source != GRID)",
+                "datatype": "enum",
+                "format": "UNKNOWN,OFF_GRID,SOC_THRESHOLD,NEVER",
+                "settable": true
+              }
+            }
+          },
+          "pcs": {
+            "name": "pcs",
+            "type": "energy.ebus.capability.pcs",
+            "properties": {
+              "managed": {
+                "name": "Is circuit managed by PCS?",
+                "datatype": "boolean"
+              },
+              "priority": {
+                "name": "Circuit PCS priority ranking",
+                "datatype": "integer"
+              }
+            }
+          },
+          "connection": {
+            "name": "connection",
+            "type": "energy.ebus.capability.connection",
+            "properties": {
+              "feeds-device-id": {
+                "name": "Homie device-id of the downstream device fed by this circuit",
+                "datatype": "string"
+              },
+              "feeds-device-type": {
+                "name": "Homie $type of the downstream device",
+                "datatype": "string"
+              },
+              "feeds-device-status": {
+                "name": "Panel's view of comm health to the downstream device",
+                "datatype": "enum",
+                "format": "OK,LOST,DEGRADED"
+              },
+              "count": {
+                "name": "Number of physical units aggregated downstream (e.g. microinverters, packs)",
+                "datatype": "integer"
+              },
+              "fed-by-device-id": {
+                "name": "Homie device-id of the device wired upstream of this circuit",
+                "datatype": "string"
+              },
+              "fed-by-device-type": {
+                "name": "Homie $type of the upstream device",
+                "datatype": "string"
+              },
+              "fed-by-device-status": {
+                "name": "Panel's view of comm health to the upstream device",
+                "datatype": "enum",
+                "format": "OK,LOST,DEGRADED"
+              },
+              "backed-up": {
+                "name": "Whether this circuit is on the backup (island) side of a microgrid interconnect device",
+                "datatype": "enum",
+                "format": "BACKED_UP,NOT_BACKED_UP,UNKNOWN"
+              },
+              "feeds-role": {
+                "name": "Coarse role of a downstream node not published as its own eBus device",
+                "datatype": "enum",
+                "format": "LOADS,SUBPANEL,SOLAR,STORAGE,GENERATOR,MIXED,UNUSED"
+              }
+            }
+          }
+        },
+        "children": [],
+        "root": "zz-0000-synth",
+        "parent": "zz-0000-synth",
+        "extensions": []
+      },
+      "properties": {
+        "info/name": null,
+        "info/spaces": "9,11",
+        "info/tags": null,
+        "info/locations": null,
+        "info/dedicated": "false",
+        "info/nominal-voltage": "240.0",
+        "switch/relay": "CLOSED",
+        "switch/relay-requester": "NONE",
+        "switch/relay-controllable": "true",
+        "switch/shared-with-device-ids": null,
+        "breaker/rating": "20",
+        "breaker/poles": "2",
+        "breaker/protection-functions": "OVERCURRENT",
+        "meter/current": "0.0",
+        "meter/active-power": "0.0",
+        "meter/imported-energy": "0.0",
+        "meter/exported-energy": "0.0",
+        "meter/shared-with-device-ids": null,
+        "load-shed/priority": "NEVER",
+        "pcs/managed": "false",
+        "pcs/priority": null,
+        "connection/feeds-device-id": null,
+        "connection/feeds-device-type": null,
+        "connection/feeds-device-status": null,
+        "connection/count": null,
+        "connection/fed-by-device-id": null,
+        "connection/fed-by-device-type": null,
+        "connection/fed-by-device-status": null,
+        "connection/backed-up": "NOT_BACKED_UP",
+        "connection/feeds-role": "LOADS"
+      },
+      "root_id": "zz-0000-synth",
+      "parent_id": "zz-0000-synth",
+      "children_ids": [],
+      "is_root": false
+    },
+    "zz-meter-a": {
+      "description": {
+        "homie": "5.0",
+        "version": null,
+        "type": "energy.ebus.device.circuit",
+        "name": "zz-meter-a",
+        "nodes": {
+          "meter": {
+            "name": "meter",
+            "type": "energy.ebus.capability.meter",
+            "properties": {
+              "current": {
+                "name": "Measured current",
+                "datatype": "float",
+                "unit": "A"
+              },
+              "active-power": {
+                "name": "Measured active power",
+                "datatype": "float",
+                "unit": "W"
+              },
+              "imported-energy": {
+                "name": "Measured energy imported",
+                "datatype": "float",
+                "unit": "Wh"
+              },
+              "exported-energy": {
+                "name": "Measured energy exported",
+                "datatype": "float",
+                "unit": "Wh"
+              },
+              "shared-with-device-ids": {
+                "name": "Other circuits this meter's hardware also measures",
+                "datatype": "string"
+              }
+            }
+          }
+        },
+        "children": [],
+        "root": "zz-0000-synth",
+        "parent": "zz-0000-synth",
+        "extensions": []
+      },
+      "properties": {
+        "meter/current": "2.0",
+        "meter/active-power": "-480.0",
+        "meter/imported-energy": "5.0",
+        "meter/exported-energy": "98765.0",
+        "meter/shared-with-device-ids": null
+      },
+      "root_id": "zz-0000-synth",
+      "parent_id": "zz-0000-synth",
+      "children_ids": [],
+      "is_root": false
+    },
+    "zz-0000-synth-evse": {
+      "description": {
+        "homie": "5.0",
+        "version": null,
+        "type": "energy.ebus.device.evse",
+        "name": "zz-0000-synth-evse",
+        "nodes": {
+          "info": {
+            "name": "info",
+            "type": "energy.ebus.capability.info",
+            "properties": {
+              "vendor-name": {
+                "name": "Vendor name",
+                "datatype": "string"
+              },
+              "model": {
+                "name": "Model",
+                "datatype": "string"
+              },
+              "part-number": {
+                "name": "Part number",
+                "datatype": "string"
+              },
+              "serial-number": {
+                "name": "Serial number",
+                "datatype": "string"
+              },
+              "firmware-version": {
+                "name": "Firmware version",
+                "datatype": "string"
+              }
+            }
+          },
+          "switch": {
+            "name": "switch",
+            "type": "energy.ebus.capability.switch",
+            "properties": {
+              "lock-state": {
+                "name": "Lock state",
+                "datatype": "enum",
+                "format": "UNLOCKED,LOCKED",
+                "settable": true
+              }
+            }
+          },
+          "status": {
+            "name": "status",
+            "type": "energy.ebus.capability.status",
+            "properties": {
+              "status": {
+                "name": "Status",
+                "datatype": "enum",
+                "format": "AVAILABLE,PREPARING,CHARGING,UNAVAILABLE"
+              }
+            }
+          },
+          "config": {
+            "name": "config",
+            "type": "energy.ebus.capability.config",
+            "properties": {
+              "user-max-charge-current": {
+                "name": "User-configured maximum EVSE charge current (ceiling)",
+                "datatype": "integer",
+                "unit": "A",
+                "settable": true
+              },
+              "max-charge-current": {
+                "name": "Commissioned maximum EVSE charge current (installer-configured)",
+                "datatype": "integer",
+                "unit": "A"
+              }
+            }
+          }
+        },
+        "children": [],
+        "root": "zz-0000-synth",
+        "parent": "zz-0000-synth",
+        "extensions": []
+      },
+      "properties": {
+        "info/vendor-name": "SPAN",
+        "info/model": "Example EVSE",
+        "info/part-number": null,
+        "info/serial-number": "zz-evse-synth",
+        "info/firmware-version": "0.0.0",
+        "switch/lock-state": "UNLOCKED",
+        "status/status": "AVAILABLE",
+        "config/user-max-charge-current": "32",
+        "config/max-charge-current": "48"
+      },
+      "root_id": "zz-0000-synth",
+      "parent_id": "zz-0000-synth",
+      "children_ids": [],
+      "is_root": false
+    }
+  }
+}

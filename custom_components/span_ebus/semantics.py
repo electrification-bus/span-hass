@@ -13,17 +13,21 @@ device-class dimension matters because the same capability differs by host
 import-limit families; enclosure ``meter`` = voltages vs lugs ``meter`` =
 per-leg currents + power + energy).
 
-``tests/test_semantics_coverage.py`` keeps this table honest against the
-adapter's own generated schema (``GET /api/v2/homie/schema``, vendored as
-``custom_components/span_ebus/adapter_schema.json``): every device class / capability /
-property the ebus-panel-adapter can publish must be mapped here, so a renamed or
-added property surfaces as a loud test failure rather than a silently dropped
-entity. The adapter schema, not the upstream spec (aspirational) nor only the
-live wire (only instantiated devices), is the coverage oracle: it is what
-"track the adapter first" means, and it carries device classes the reference
-panels lack (EVSE) and forward-declared capabilities (``doe``). The vendored
-public spec catalogs under ``spec/`` anchor the pinned version (``.ebus-spec.json``)
-and are the units/format reference.
+``tests/test_semantics_coverage.py`` keeps this table honest against every
+vendored schema file under ``custom_components/span_ebus/``: each served schema
+(``GET /api/v2/homie/schema``, vendored as ``adapter_schema*.json``, one file per
+SPAN Panel model it was synced from) and SPAN's r202639 union across models
+(``homie_schema_union_*.json``). A panel serves only its own model's schema, so
+the union is what covers the properties only SPAN Panel models other than
+MAIN 32 publish. Every device class / capability / property in any of those
+files must be mapped here, so a renamed or added property surfaces as a loud
+test failure rather than a silently dropped entity. The schemas, not the
+upstream spec (aspirational) nor only the live wire (only instantiated
+devices), are the coverage oracle: that is what "track the adapter first"
+means, and they carry device classes the reference panels lack (EVSE) and
+forward-declared capabilities (``doe``). The vendored public spec catalogs
+under ``spec/`` anchor the pinned version (``.ebus-spec.json``) and are the
+units/format reference.
 """
 
 from __future__ import annotations
@@ -119,6 +123,19 @@ SEMANTICS: dict[tuple[str, str, str], Row] = {
     ("distribution-enclosure", "info", "software-version"): _diag("Firmware Version"),  # legacy alias
     ("distribution-enclosure", "info", "data-model-version"): _diag("eBus Data-Model Version"),
     ("distribution-enclosure", "info", "part-number"): _diag("Part Number"),
+    # Site identity and location, published by SPAN Panel models other than
+    # MAIN 32. Shown as recorded on the panel; the integration runs on the
+    # homeowner's own network.
+    ("distribution-enclosure", "info", "name"): _diag("Site Name"),
+    ("distribution-enclosure", "info", "address-lines"): _diag("Address"),
+    ("distribution-enclosure", "info", "locality"): _diag("Locality"),
+    ("distribution-enclosure", "info", "region"): _diag("Region"),
+    ("distribution-enclosure", "info", "country-code"): _diag("Country Code"),
+    ("distribution-enclosure", "info", "latitude"): _diag("Latitude"),
+    ("distribution-enclosure", "info", "longitude"): _diag("Longitude"),
+    ("distribution-enclosure", "info", "utility-meter-serial-number"): _diag(
+        "Utility Meter Serial Number"
+    ),
     ("distribution-enclosure", "door", "state"): _binary(
         "Door", device_class=BinarySensorDeviceClass.TAMPER, on_values={"OPEN"}
     ),
@@ -127,6 +144,10 @@ SEMANTICS: dict[tuple[str, str, str], Row] = {
     ),
     ("distribution-enclosure", "meter", "voltage-a"): _measure("L1 Voltage", SensorDeviceClass.VOLTAGE),
     ("distribution-enclosure", "meter", "voltage-b"): _measure("L2 Voltage", SensorDeviceClass.VOLTAGE),
+    ("distribution-enclosure", "meter", "busbar-current"): _measure(
+        "Busbar Current", SensorDeviceClass.CURRENT
+    ),
+    ("distribution-enclosure", "meter", "frequency"): _measure("Frequency", SensorDeviceClass.FREQUENCY),
     ("distribution-enclosure", "breaker", "rating"): _diag(
         "Main Breaker Rating", device_class=SensorDeviceClass.CURRENT
     ),
@@ -231,6 +252,16 @@ SEMANTICS: dict[tuple[str, str, str], Row] = {
     ("lugs", "connection", "feeds-device-status"): _problem(
         "Downstream Connection Problem", _NOT_OK, direction="downstream"
     ),
+    # Published by SPAN Panel models other than MAIN 32. Not direction-gated:
+    # which lug carries them is read from the live $description.
+    ("lugs", "connection", "backed-up"): _diag("Backed Up"),
+    ("lugs", "connection", "feeds-role"): _diag("Feeds Role"),
+    ("lugs", "connection", "service-rating"): _diag(
+        "Service Rating", device_class=SensorDeviceClass.CURRENT
+    ),
+    ("lugs", "connection", "overcurrent-protection"): _diag(
+        "Overcurrent Protection Rating", device_class=SensorDeviceClass.CURRENT
+    ),
 
     # ── bess ─────────────────────────────────────────────────────────────────
     ("bess", "info", "vendor-name"): _diag("Vendor"),
@@ -273,8 +304,15 @@ SEMANTICS: dict[tuple[str, str, str], Row] = {
     # ── circuit ──────────────────────────────────────────────────────────────
     ("circuit", "info", "name"): _diag("Name"),
     ("circuit", "info", "spaces"): _diag("Tabs"),
+    ("circuit", "info", "tags"): _diag("Tags"),
+    ("circuit", "info", "locations"): _diag("Locations"),
+    ("circuit", "info", "dedicated"): _binary("Dedicated", entity_category=EntityCategory.DIAGNOSTIC),
+    ("circuit", "info", "nominal-voltage"): _diag(
+        "Nominal Voltage", device_class=SensorDeviceClass.VOLTAGE
+    ),
     ("circuit", "breaker", "rating"): _diag("Breaker Rating", device_class=SensorDeviceClass.CURRENT),
     ("circuit", "breaker", "poles"): _diag("Breaker Poles"),
+    ("circuit", "breaker", "protection-functions"): _diag("Breaker Protection"),
     ("circuit", "meter", "current"): _measure("Current", SensorDeviceClass.CURRENT),
     ("circuit", "meter", "active-power"): _measure(
         "Power", SensorDeviceClass.POWER, negate=True, pv_sign_aware=True
@@ -284,6 +322,8 @@ SEMANTICS: dict[tuple[str, str, str], Row] = {
     # back FROM the circuit (backfeed) = "Energy Returned".
     ("circuit", "meter", "exported-energy"): _total("Energy", SensorDeviceClass.ENERGY),
     ("circuit", "meter", "imported-energy"): _total("Energy Returned", SensorDeviceClass.ENERGY),
+    # Other circuits' opaque device ids; disabled by default.
+    ("circuit", "meter", "shared-with-device-ids"): _diag("Meter Shared With", enabled_default=False),
     ("circuit", "load-shed", "priority"): _select("Shed Priority", icon="mdi:priority-high"),
     ("circuit", "pcs", "managed"): _binary("PCS Managed", entity_category=EntityCategory.DIAGNOSTIC),
     ("circuit", "pcs", "priority"): _diag("PCS Priority"),
@@ -292,10 +332,18 @@ SEMANTICS: dict[tuple[str, str, str], Row] = {
         "Relay Controllable", entity_category=EntityCategory.DIAGNOSTIC
     ),
     ("circuit", "switch", "relay-requester"): _diag("Relay Requester"),
+    ("circuit", "switch", "shared-with-device-ids"): _diag("Relay Shared With", enabled_default=False),
     ("circuit", "connection", "feeds-device-id"): _diag("Feeds Device"),
     ("circuit", "connection", "feeds-device-type"): _diag("Feeds Device Type"),
     ("circuit", "connection", "feeds-device-status"): _problem("Feeds Connection Problem", _NOT_OK),
     ("circuit", "connection", "count"): _diag("Feeds Count"),
+    # Published by SPAN Panel models other than MAIN 32, which signal a solar
+    # connection with feeds-role SOLAR rather than a pv device.
+    ("circuit", "connection", "fed-by-device-id"): _diag("Fed By Device"),
+    ("circuit", "connection", "fed-by-device-type"): _diag("Fed By Device Type"),
+    ("circuit", "connection", "fed-by-device-status"): _problem("Fed By Connection Problem", _NOT_OK),
+    ("circuit", "connection", "backed-up"): _diag("Backed Up"),
+    ("circuit", "connection", "feeds-role"): _diag("Feeds Role"),
 }
 
 
@@ -342,7 +390,8 @@ SEMANTICS[("evse", "info", "part-number")] = _diag("Part Number")
 SEMANTICS[("evse", "info", "serial-number")] = _diag("Serial Number")
 SEMANTICS[("evse", "info", "firmware-version")] = _diag("Firmware Version")
 # lock-state (UNLOCKED/LOCKED) and status (AVAILABLE/PREPARING/CHARGING/
-# UNAVAILABLE) are read-only enums; shown verbatim so every state stays legible.
+# UNAVAILABLE) are shown verbatim so every state stays legible. lock-state is
+# settable on SPAN Panel models other than MAIN 32 but is shown read-only here.
 SEMANTICS[("evse", "switch", "lock-state")] = _diag("Lock State", icon="mdi:lock")
 SEMANTICS[("evse", "status", "status")] = _diag("Status", icon="mdi:ev-station")
 SEMANTICS[("evse", "meter", "advertised-current")] = _measure("Advertised Current", SensorDeviceClass.CURRENT)
@@ -366,3 +415,19 @@ SEMANTICS[("evse", "config", "max-charge-current")] = _diag(
 FIRMWARE_GATED_NEGATE: frozenset[tuple[str, str, str]] = frozenset(
     {("bess", "meter", "active-power")}
 )
+
+
+# ── Remote current transformer ──────────────────────────────────────────────
+#
+# A circuit-class device that does not declare ``info/spaces`` measures a
+# conductor outside the panel, such as a remote current transformer on the
+# service (``util.is_off_panel_circuit``). It meters in the enclosure frame, like the upstream lugs:
+# ``active-power`` is positive while importing from the grid and
+# ``imported-energy`` grows on import. The circuit rows would negate it and
+# label grid import as backfeed, so these rows replace them on such a device,
+# with the upstream lugs' names.
+REMOTE_CT_SEMANTICS: dict[tuple[str, str], Row] = {
+    ("meter", "active-power"): _measure("Power", SensorDeviceClass.POWER),
+    ("meter", "imported-energy"): _total("Energy", SensorDeviceClass.ENERGY),
+    ("meter", "exported-energy"): _total("Energy Returned", SensorDeviceClass.ENERGY),
+}

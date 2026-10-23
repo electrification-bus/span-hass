@@ -19,7 +19,7 @@
       },
       "auth_passphrase": {
         "title": "Enter Passphrase",
-        "description": "Enter the HOP passphrase for your SPAN Panel.",
+        "description": "Serial: {serial}\nFirmware: {firmware}\n\nEnter the HOP passphrase for your SPAN Panel.",
         "data": {
           "passphrase": "Passphrase"
         }
@@ -40,6 +40,7 @@
       "door_bypass_not_active": "Door bypass not active. Press the door switch 3 times and try again.",
       "ca_unavailable": "The SPAN Panel's CA certificate could not be downloaded. Please try again.",
       "not_ready": "The SPAN Panel is not ready to register clients yet. Wait a minute and try again.",
+      "rate_limited": "The SPAN Panel is limiting registration requests. Wait a minute and try again.",
       "broker_password_unavailable": "The SPAN Panel cannot read its passphrase right now, so it cannot provide its MQTT broker password. Wait a minute and try again.",
       "unknown": "An unexpected error occurred."
     },

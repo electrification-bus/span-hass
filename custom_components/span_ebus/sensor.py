@@ -53,6 +53,7 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
         SensorDeviceClass.CURRENT,
         SensorDeviceClass.VOLTAGE,
         SensorDeviceClass.DURATION,
+        SensorDeviceClass.FREQUENCY,
     }
 
     def __init__(self, panel: Any, spec: EntitySpec) -> None:
@@ -80,7 +81,7 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
         self._counter_decrease_notable = False
         self._last_numeric: float | None = None
 
-        # Sticky: once we observe this circuit feeds a PV device, suppress the
+        # Sticky: once we observe this circuit feeds solar, suppress the
         # active-power sign flip permanently (see ``_should_negate``).
         self._feeds_pv = False
 
@@ -97,10 +98,10 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
         negative → flip to positive). For a ``pv_sign_aware`` sensor (circuit
         active-power), a PV-feed circuit is the exception: raw eBus already
         reports generation as positive, so the flip must be suppressed. The
-        PV determination reads the live ``connection/feeds-device-type`` — a
-        retained sibling property that may not have arrived when the entity was
-        built, so re-check until detected, then cache (it does not change at
-        runtime).
+        PV determination reads the live ``connection/feeds-device-type`` or, on
+        SPAN Panel models other than MAIN 32, ``connection/feeds-role``. These
+        are retained sibling properties that may not have arrived when the
+        entity was built, so re-check until detected, then cache the result.
 
         A ``FIRMWARE_GATED_NEGATE`` sensor is negated only while the panel runs
         a release that publishes it with the opposite sign.
@@ -121,7 +122,10 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
             feeds = self._panel.get_property_value(
                 self._device_id, CAPABILITY_CONNECTION, "feeds-device-type"
             )
-            if device_type_short(feeds or "") == DEVICE_TYPE_PV:
+            role = self._panel.get_property_value(
+                self._device_id, CAPABILITY_CONNECTION, "feeds-role"
+            )
+            if device_type_short(feeds or "") == DEVICE_TYPE_PV or role == "SOLAR":
                 self._feeds_pv = True
         return not self._feeds_pv
 
@@ -146,7 +150,12 @@ class SpanEbusSensor(SpanEbusEntity, SensorEntity):
 
     def _update_from_value(self, value: str) -> None:
         """Update sensor state from a raw MQTT value."""
-        if self.device_class in self._NUMERIC_DEVICE_CLASSES:
+        # A sensor with a unit is numeric to Home Assistant whatever its device
+        # class (e.g. latitude in degrees), and a non-numeric state would raise.
+        if (
+            self.device_class in self._NUMERIC_DEVICE_CLASSES
+            or self.native_unit_of_measurement is not None
+        ):
             try:
                 numeric = float(value)
             except (ValueError, TypeError):

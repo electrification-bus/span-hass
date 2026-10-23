@@ -28,7 +28,8 @@ from homeassistant.components.sensor import SensorStateClass
 from homeassistant.const import EntityCategory, Platform
 
 from .const import DEVICE_TYPE_LUGS, HOMIE_DEVICE_TYPE_PREFIX
-from .semantics import SEMANTICS
+from .semantics import REMOTE_CT_SEMANTICS, SEMANTICS
+from .util import is_off_panel_circuit
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,6 +61,8 @@ class EntitySpec:
     icon: str | None = None
     settable: bool = False
     on_values: set[str] = field(default_factory=set)
+    # False registers the entity disabled; the user can enable it.
+    enabled_default: bool = True
 
     # Subscribe to a different property than property_id for MQTT updates.
     # When set, unique_id uses property_id but the MQTT callback registers on
@@ -71,10 +74,12 @@ class EntitySpec:
     negate: bool = False
 
     # When True, the sensor suppresses ``negate`` at runtime if the owning
-    # circuit feeds a PV device (``connection/feeds-device-type == pv``). PV-feed
-    # circuits already report generation as positive, so the load sign-flip must
-    # not apply. Decided at runtime, not build time, because feeds-device-type
-    # (a retained sibling property) may not have landed when entities are built.
+    # circuit feeds solar: a PV device (``connection/feeds-device-type == pv``)
+    # or, on SPAN Panel models other than MAIN 32, ``connection/feeds-role ==
+    # SOLAR``. PV-feed circuits already report generation as positive, so the
+    # load sign-flip must not apply. Decided at runtime, not build time, because
+    # these retained sibling properties may not have landed when entities are
+    # built.
     pv_sign_aware: bool = False
 
     # HA DeviceInfo construction. device_type is the short device-class name
@@ -202,6 +207,7 @@ def entities_from_tree(devices: dict[str, dict[str, Any]]) -> list[EntitySpec]:
             )
             continue
 
+        remote_ct = is_off_panel_circuit(description)
         lug_direction = (
             _lug_direction(device_data, device_id)
             if device_class == DEVICE_TYPE_LUGS
@@ -212,6 +218,8 @@ def entities_from_tree(devices: dict[str, dict[str, Any]]) -> list[EntitySpec]:
             properties = (node_desc or {}).get("properties") or {}
             for property_id, decl in properties.items():
                 row = SEMANTICS.get((device_class, capability, property_id))
+                if remote_ct:
+                    row = REMOTE_CT_SEMANTICS.get((capability, property_id), row)
                 if row is None:
                     _LOGGER.debug(
                         "no semantics for (%s, %s, %s) on device %s",
